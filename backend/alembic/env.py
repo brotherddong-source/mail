@@ -1,4 +1,5 @@
 import asyncio
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -22,8 +23,17 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _get_db_url() -> str:
+    """
+    Railway는 DATABASE_URL 또는 POSTGRES_URL 환경변수를 제공.
+    pydantic-settings의 Settings 클래스가 이미 변환해주므로 그걸 사용.
+    """
+    from app.config import get_settings
+    return get_settings().async_database_url
+
+
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
+    url = _get_db_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -41,14 +51,11 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
+    url = _get_db_url()
     connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        {"sqlalchemy.url": url},
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        # asyncpg 드라이버 사용
-        url=config.get_main_option("sqlalchemy.url").replace(
-            "postgresql://", "postgresql+asyncpg://"
-        ),
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
