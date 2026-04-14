@@ -5,12 +5,22 @@ import { mailApi, MailMessage } from "@/lib/api";
 import MailRow from "./MailRow";
 import MailDetail from "../MailDetail/MailDetail";
 import Link from "next/link";
+import { useAuth, logout } from "@/lib/auth";
 
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2, null: 3 };
 
 export default function InboxDashboard() {
+  const { user, loading } = useAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-gray-400">
+        로딩 중...
+      </div>
+    );
+  }
 
   const { data: mails = [], isLoading, refetch } = useQuery({
     queryKey: ["mails", statusFilter],
@@ -38,18 +48,24 @@ export default function InboxDashboard() {
               전체 {mails.length}건 · 회신 필요 {replyNeeded}건 · 긴급 {high}건
             </p>
           </div>
-          <div className="flex gap-2">
-            <Link
-              href="/cases"
-              className="rounded-md border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
-            >
+          <div className="flex items-center gap-3">
+            {user && (
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center font-semibold text-blue-700">
+                  {user.name[0]}
+                </div>
+                <span>{user.name}</span>
+                {user.department && <span className="text-xs text-gray-400">({user.department})</span>}
+              </div>
+            )}
+            <Link href="/cases" className="rounded-md border px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
               사건 관리
             </Link>
-            <button
-              onClick={() => refetch()}
-              className="rounded-md border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
-            >
+            <button onClick={() => refetch()} className="rounded-md border px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
               새로고침
+            </button>
+            <button onClick={logout} className="rounded-md border px-3 py-2 text-sm text-red-500 hover:bg-red-50">
+              로그아웃
             </button>
           </div>
         </div>

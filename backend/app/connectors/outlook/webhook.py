@@ -22,8 +22,10 @@ SUBSCRIPTION_EXPIRY_HOURS = 48  # Graph API 최대 4230분 (약 70시간)
 
 
 class SubscriptionManager:
-    def __init__(self, user_id: str):
+    def __init__(self, user_id: str, access_token: str | None = None):
         self.user_id = user_id
+        # 개인 토큰이 있으면 직접 사용, 없으면 Application 권한 클라이언트 사용
+        self._access_token = access_token
         self.client = get_graph_client()
 
     async def create_or_renew(self) -> dict:
