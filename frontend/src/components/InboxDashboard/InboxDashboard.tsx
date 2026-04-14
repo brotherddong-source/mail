@@ -14,6 +14,14 @@ export default function InboxDashboard() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
+  // 훅은 조건부 return 이전에 모두 선언해야 함 (Rules of Hooks)
+  const { data: mails = [], isLoading, refetch } = useQuery({
+    queryKey: ["mails", statusFilter],
+    queryFn: () => mailApi.list(statusFilter !== "all" ? { status: statusFilter } : {}),
+    refetchInterval: 30_000,
+    enabled: !loading && !!user,  // 로그인 완료 후에만 요청
+  });
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center text-gray-400">
@@ -21,12 +29,6 @@ export default function InboxDashboard() {
       </div>
     );
   }
-
-  const { data: mails = [], isLoading, refetch } = useQuery({
-    queryKey: ["mails", statusFilter],
-    queryFn: () => mailApi.list(statusFilter !== "all" ? { status: statusFilter } : {}),
-    refetchInterval: 30_000,
-  });
 
   const sorted = [...mails].sort(
     (a, b) =>
