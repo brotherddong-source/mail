@@ -1,48 +1,29 @@
 """
-수신 메일 처리 파이프라인 (Celery Task)
+수신 메일 처리 파이프라인
 흐름: Graph 메일 수신 → DB 저장 → 사건 매칭 → AI 분석 → 초안 생성
 """
 import logging
 import uuid
 from datetime import datetime
 
-from celery import shared_task
 from sqlalchemy import select
 
-from app.ai.analyzer import MailAnalyzer
-from app.ai.drafter import MailDrafter
 from app.connectors.outlook.client import get_graph_client
 from app.database import AsyncSessionLocal
 from app.domain.cases.matcher import CaseMatcher
 from app.domain.drafts.models import DraftResponse
 from app.domain.mails.models import MailAttachment, MailMessage
-from app.worker import celery_app
 
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
-def process_incoming_mail(self, user_id: str, message_id: str):
-    """
-    Webhook/Delta Query로 트리거된 메일 처리 태스크.
-    동기 래퍼 → 내부에서 asyncio.run() 사용
-    """
-    import asyncio
-    try:
-        asyncio.run(_async_process(user_id, message_id))
-    except Exception as exc:
-        logger.error("메일 처리 실패 (message_id=%s): %s", message_id, exc)
-        raise self.retry(exc=exc)
-
-
 async def _async_process(user_id: str, message_id: str) -> None:
-    """실제 비동기 처리 로직"""
+    """실제 비동기 처리 로직 — 저장과 AI 분석을 분리해 에러 시에도 메일은 보존"""
     graph = get_graph_client()
-    analyzer = MailAnalyzer()
-    drafter = MailDrafter()
 
+    # ── 1단계: 메일 저장 (별도 트랜잭션 — 항상 commit) ──────────────────
     async with AsyncSessionLocal() as db:
-        # 1. 중복 체크
+        # 중복 체크
         existing = await db.execute(
             select(MailMessage).where(MailMessage.graph_message_id == message_id)
         )
@@ -50,13 +31,20 @@ async def _async_process(user_id: str, message_id: str) -> None:
             logger.info("이미 처리된 메일 (message_id=%s)", message_id)
             return
 
-        # 2. Graph API에서 메일 상세 조회
-        raw = await graph.get_message(user_id, message_id)
+        # Graph API에서 메일 상세 조회
+        try:
+            raw = await graph.get_message(user_id, message_id)
+        except Exception as e:
+            logger.error("Graph 메일 조회 실패 (message_id=%s): %s", message_id, e)
+            return
+
         attachments_raw = []
         if raw.get("hasAttachments"):
-            attachments_raw = await graph.get_message_attachments(user_id, message_id)
+            try:
+                attachments_raw = await graph.get_message_attachments(user_id, message_id)
+            except Exception as e:
+                logger.warning("첨부파일 조회 실패 (message_id=%s): %s", message_id, e)
 
-        # 3. DB 저장
         mail = _map_to_mail_message(raw)
         db.add(mail)
         await db.flush()
@@ -70,7 +58,43 @@ async def _async_process(user_id: str, message_id: str) -> None:
                 size_bytes=att.get("size"),
             ))
 
-        # 4. 사건 매칭
+        await db.commit()
+        mail_id = mail.id
+        logger.info("메일 저장 완료 (id=%s, subject=%s)", mail_id, mail.subject)
+
+    # ── 2단계: 사건 매칭 + AI 분석 (실패해도 메일은 이미 저장됨) ──────────
+    try:
+        await _analyze_and_draft(mail_id, message_id)
+    except Exception as e:
+        logger.error("AI 분석 실패 (mail_id=%s): %s", mail_id, e)
+        # 실패 시 status를 'error'로 업데이트
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(select(MailMessage).where(MailMessage.id == mail_id))
+                mail = result.scalar_one_or_none()
+                if mail:
+                    mail.processing_status = "error"
+                    await db.commit()
+        except Exception:
+            pass
+
+
+async def _analyze_and_draft(mail_id: uuid.UUID, message_id: str) -> None:
+    """AI 분석 및 초안 생성 — 별도 트랜잭션"""
+    from app.ai.analyzer import MailAnalyzer
+    from app.ai.drafter import MailDrafter
+
+    analyzer = MailAnalyzer()
+    drafter = MailDrafter()
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(MailMessage).where(MailMessage.id == mail_id))
+        mail = result.scalar_one_or_none()
+        if not mail:
+            return
+
+        # 사건 매칭
+        from app.domain.cases.matcher import CaseMatcher
         matcher = CaseMatcher(db)
         match_result = await matcher.match(
             subject=mail.subject or "",
@@ -92,7 +116,7 @@ async def _async_process(user_id: str, message_id: str) -> None:
         else:
             case_dict = None
 
-        # 5. AI 분석
+        # AI 분석
         mail_dict = {
             "from_email": mail.from_email,
             "from_name": mail.from_name,
@@ -109,9 +133,8 @@ async def _async_process(user_id: str, message_id: str) -> None:
         mail.priority = analysis.urgency.value
         mail.processing_status = "analyzed"
 
-        # 6. 회신 필요 시 초안 생성
+        # 회신 필요 시 초안 생성
         if analysis.requires_reply:
-            # 과거 관련 메일 조회 (최대 5건)
             history_result = await db.execute(
                 select(MailMessage)
                 .where(
@@ -152,7 +175,7 @@ async def _async_process(user_id: str, message_id: str) -> None:
             mail.processing_status = "draft_ready"
 
         await db.commit()
-        logger.info("메일 처리 완료 (id=%s, status=%s)", mail.id, mail.processing_status)
+        logger.info("AI 분석 완료 (id=%s, status=%s)", mail.id, mail.processing_status)
 
 
 def _map_to_mail_message(raw: dict) -> MailMessage:
