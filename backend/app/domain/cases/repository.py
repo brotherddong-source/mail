@@ -36,14 +36,22 @@ class CaseRepository:
 
     async def find_recent_by_sender(self, from_email: str, limit: int = 5) -> list[Case]:
         """과거 동일 발신자가 연관된 사건 이력"""
+        from sqlalchemy import func
         from app.domain.mails.models import MailMessage
-        result = await self.db.execute(
-            select(Case)
-            .join(MailMessage, MailMessage.case_id == Case.id)
-            .where(MailMessage.from_email == from_email.lower())
-            .order_by(MailMessage.received_at.desc())
+        # DISTINCT + ORDER BY 충돌 방지: subquery로 최근 메일의 case_id 조회 후 join
+        subq = (
+            select(MailMessage.case_id, func.max(MailMessage.received_at).label("latest"))
+            .where(
+                MailMessage.from_email == from_email.lower(),
+                MailMessage.case_id.isnot(None),
+            )
+            .group_by(MailMessage.case_id)
+            .order_by(func.max(MailMessage.received_at).desc())
             .limit(limit)
-            .distinct()
+            .subquery()
+        )
+        result = await self.db.execute(
+            select(Case).join(subq, Case.id == subq.c.case_id)
         )
         return list(result.scalars().all())
 
