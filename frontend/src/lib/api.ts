@@ -53,19 +53,59 @@ export interface Recipient {
   reason: string;
 }
 
+export interface Case {
+  id: string;
+  case_number: string;
+  app_number: string | null;
+  client_name: string;
+  client_domain: string | null;
+  country: string;
+  case_type: string | null;
+  status: string | null;
+  deadline: string | null;
+}
+
+export interface UploadResult {
+  status: string;
+  created: number;
+  updated: number;
+  total: number;
+  errors: { row: number; case_number: string; error: string }[];
+}
+
 // ----------------------------------------------------------------
 // API Calls
 // ----------------------------------------------------------------
 export const mailApi = {
-  list: (params?: { date?: string; status?: string }) =>
+  list: (params?: { status?: string }) =>
     api.get<MailMessage[]>("/api/mails", { params }).then((r) => r.data),
-
   detail: (id: string) =>
     api.get<MailDetail>(`/api/mails/${id}`).then((r) => r.data),
-
   approveDraft: (draftId: string, body: { edited_body?: string; use_ko?: boolean }) =>
     api.post(`/api/drafts/${draftId}/approve`, body).then((r) => r.data),
-
   rejectDraft: (draftId: string, reason: string) =>
     api.post(`/api/drafts/${draftId}/reject`, { reason }).then((r) => r.data),
+};
+
+export const caseApi = {
+  list: () => api.get<Case[]>("/api/cases").then((r) => r.data),
+  uploadCases: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post<UploadResult>("/api/cases/upload", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }).then((r) => r.data);
+  },
+  uploadContacts: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post<UploadResult>("/api/cases/upload-contacts", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }).then((r) => r.data);
+  },
+  downloadTemplate: () => {
+    window.open(
+      `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/cases/template`
+    );
+  },
 };

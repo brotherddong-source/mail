@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { mailApi, MailMessage } from "@/lib/api";
 import MailRow from "./MailRow";
 import MailDetail from "../MailDetail/MailDetail";
+import Link from "next/link";
 
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2, null: 3 };
 
@@ -37,12 +38,20 @@ export default function InboxDashboard() {
               전체 {mails.length}건 · 회신 필요 {replyNeeded}건 · 긴급 {high}건
             </p>
           </div>
-          <button
-            onClick={() => refetch()}
-            className="rounded-md border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
-          >
-            새로고침
-          </button>
+          <div className="flex gap-2">
+            <Link
+              href="/cases"
+              className="rounded-md border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+            >
+              사건 관리
+            </Link>
+            <button
+              onClick={() => refetch()}
+              className="rounded-md border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+            >
+              새로고침
+            </button>
+          </div>
         </div>
 
         {/* 필터 */}

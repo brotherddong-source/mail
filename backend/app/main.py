@@ -37,9 +37,11 @@ async def health_check():
 from app.connectors.outlook.webhook import router as webhook_router
 from app.domain.mails.router import router as mail_router
 from app.domain.drafts.router import router as draft_router
+from app.domain.cases.router import router as case_router
 from app.admin.router import router as admin_router
 
 app.include_router(webhook_router, prefix="/webhooks", tags=["webhooks"])
 app.include_router(mail_router, prefix="/api/mails", tags=["mails"])
 app.include_router(draft_router, prefix="/api/drafts", tags=["drafts"])
+app.include_router(case_router, prefix="/api/cases", tags=["cases"])
 app.include_router(admin_router, prefix="/admin", tags=["admin"])
