@@ -2,7 +2,7 @@
 dockerfilePath = "backend/Dockerfile"
 
 [deploy]
-startCommand = "timeout 30 alembic upgrade head; uvicorn app.main:app --host 0.0.0.0 --port 8000"
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-level debug 2>&1"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
