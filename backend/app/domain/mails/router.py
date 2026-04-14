@@ -60,7 +60,7 @@ async def list_mails(
 async def get_mail(mail_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(MailMessage)
-        .options(selectinload(MailMessage.drafts))
+        .options(selectinload(MailMessage.draft_responses))
         .where(MailMessage.id == mail_id)
     )
     mail = result.scalar_one_or_none()
@@ -105,6 +105,6 @@ async def get_mail(mail_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
                 "approval_status": d.approval_status,
                 "created_at": d.created_at.isoformat(),
             }
-            for d in (mail.drafts or [])
+            for d in (mail.draft_responses or [])
         ],
     }

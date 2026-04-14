@@ -12,6 +12,7 @@ from app.database import Base  # noqa: F401
 import app.domain.cases.models  # noqa: F401
 import app.domain.mails.models  # noqa: F401
 import app.domain.drafts.models  # noqa: F401
+import app.domain.users.models  # noqa: F401
 
 config = context.config
 

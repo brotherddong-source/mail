@@ -26,10 +26,45 @@ settings = get_settings()
 MS_AUTH_URL = f"https://login.microsoftonline.com/{settings.azure_tenant_id}/oauth2/v2.0/authorize"
 MS_TOKEN_URL = f"https://login.microsoftonline.com/{settings.azure_tenant_id}/oauth2/v2.0/token"
 SCOPES = "openid email profile Mail.Read Mail.ReadWrite Mail.Send offline_access"
-REDIRECT_URI = f"https://mail-production-3eba.up.railway.app/auth/callback"
+REDIRECT_URI = "https://mail-production-3eba.up.railway.app/auth/callback"
 
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24 * 7  # 7일
+
+
+# ----------------------------------------------------------------
+# JWT 유틸 (라우트보다 먼저 정의 — Depends() 기본값 평가 시점 때문)
+# ----------------------------------------------------------------
+def _create_jwt(user_id: str, email: str, is_admin: bool) -> str:
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "is_admin": is_admin,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS),
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=JWT_ALGORITHM)
+
+
+def _decode_jwt(token: str) -> dict:
+    try:
+        return jwt.decode(token, settings.secret_key, algorithms=[JWT_ALGORITHM])
+    except Exception:
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+
+
+async def get_current_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
+    payload = _decode_jwt(auth[7:])
+    result = await db.execute(select(User).where(User.email == payload["email"]))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="접근 권한이 없습니다.")
+    return user
 
 
 # ----------------------------------------------------------------
@@ -100,7 +135,6 @@ async def callback(
             )
             db.add(user)
         else:
-            # 프론트로 리다이렉트 (에러 메시지)
             frontend = "https://mail-ruby-rho.vercel.app"
             return RedirectResponse(f"{frontend}/?error=unauthorized")
 
@@ -118,7 +152,7 @@ async def callback(
     await db.commit()
     await db.refresh(user)
 
-    # 개인 Webhook 등록 (백그라운드)
+    # 개인 Webhook 등록 (백그라운드, 실패해도 로그인 계속)
     from app.connectors.outlook.webhook import SubscriptionManager
     try:
         manager = SubscriptionManager(ms_user_id, access_token=access_token)
@@ -126,12 +160,10 @@ async def callback(
         user.personal_mailbox_connected = True
         await db.commit()
     except Exception:
-        pass  # 실패해도 로그인은 계속
+        pass
 
-    # JWT 발급
+    # JWT 발급 후 프론트엔드로 리다이렉트
     jwt_token = _create_jwt(str(user.id), user.email, user.is_admin)
-
-    # 프론트엔드로 리다이렉트 (토큰 포함)
     frontend = "https://mail-ruby-rho.vercel.app"
     return RedirectResponse(f"{frontend}/auth?token={jwt_token}")
 
@@ -149,38 +181,3 @@ async def get_me(user: User = Depends(get_current_user)):
         "is_admin": user.is_admin,
         "personal_mailbox_connected": user.personal_mailbox_connected,
     }
-
-
-# ----------------------------------------------------------------
-# JWT 유틸
-# ----------------------------------------------------------------
-def _create_jwt(user_id: str, email: str, is_admin: bool) -> str:
-    payload = {
-        "sub": user_id,
-        "email": email,
-        "is_admin": is_admin,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS),
-    }
-    return jwt.encode(payload, settings.secret_key, algorithm=JWT_ALGORITHM)
-
-
-def _decode_jwt(token: str) -> dict:
-    try:
-        return jwt.decode(token, settings.secret_key, algorithms=[JWT_ALGORITHM])
-    except Exception:
-        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
-
-
-async def get_current_user(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="인증이 필요합니다.")
-    payload = _decode_jwt(auth[7:])
-    result = await db.execute(select(User).where(User.email == payload["email"]))
-    user = result.scalar_one_or_none()
-    if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="접근 권한이 없습니다.")
-    return user

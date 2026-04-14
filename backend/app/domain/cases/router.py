@@ -1,8 +1,8 @@
 """
 사건 관리 API
-- 사건 목록 조회
-- 고객 DB 엑셀 업로드 (연락처 임포트)
-- 사건 엑셀 업로드 (사건 등록/수정)
+- 사건 목록/검색
+- 실제 사건 엑셀 업로드 (국내+해외 시트 자동 인식)
+- 고객 DB 엑셀 업로드 (연락처)
 - 엑셀 템플릿 다운로드
 """
 import io
@@ -10,9 +10,9 @@ from datetime import date
 
 import openpyxl
 import pandas as pd
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -22,44 +22,177 @@ router = APIRouter()
 
 
 # ----------------------------------------------------------------
-# 사건 목록 조회
+# 사건 목록 + 검색
 # ----------------------------------------------------------------
 @router.get("")
-async def list_cases(db: AsyncSession = Depends(get_db), limit: int = 200):
-    result = await db.execute(select(Case).order_by(Case.created_at.desc()).limit(limit))
+async def list_cases(
+    q: str | None = Query(default=None, description="사건번호/고객사/발명명칭 검색"),
+    limit: int = Query(default=50, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(Case).order_by(Case.filed_at.desc().nullslast()).limit(limit)
+    if q:
+        like = f"%{q}%"
+        stmt = select(Case).where(
+            or_(
+                Case.case_number.ilike(like),
+                Case.client_name.ilike(like),
+                Case.title_ko.ilike(like),
+                Case.title_en.ilike(like),
+                Case.app_number.ilike(like),
+            )
+        ).limit(limit)
+
+    result = await db.execute(stmt)
     cases = result.scalars().all()
-    return [
-        {
-            "id": str(c.id),
-            "case_number": c.case_number,
-            "app_number": c.app_number,
-            "client_name": c.client_name,
-            "client_domain": c.client_domain,
-            "country": c.country,
-            "case_type": c.case_type,
-            "status": c.status,
-            "deadline": c.deadline.isoformat() if c.deadline else None,
-        }
-        for c in cases
+    return [_case_to_dict(c) for c in cases]
+
+
+@router.get("/template")
+async def download_template_alias():
+    """GET /api/cases/template — /{case_id} 보다 먼저 등록해야 와일드카드에 안 잡힘"""
+    return await download_template()
+
+
+@router.get("/{case_id}")
+async def get_case(case_id: str, db: AsyncSession = Depends(get_db)):
+    # case_id 또는 case_number로 조회
+    result = await db.execute(
+        select(Case).where(
+            or_(Case.case_number == case_id)
+        )
+    )
+    case = result.scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail="사건을 찾을 수 없습니다.")
+
+    # 관계자 조회
+    parties_result = await db.execute(
+        select(Party).where(Party.case_id == case.id)
+    )
+    parties = parties_result.scalars().all()
+
+    d = _case_to_dict(case)
+    d["parties"] = [
+        {"name": p.name, "email": p.email, "role": p.role, "org_name": p.org_name}
+        for p in parties
     ]
+    return d
 
 
 # ----------------------------------------------------------------
-# 고객 DB 업로드 (특허사무소 연락처 형식)
+# 실제 사건 엑셀 업로드 (국내+해외 자동 처리)
+# ----------------------------------------------------------------
+@router.post("/upload")
+async def upload_cases(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    content = await file.read()
+    try:
+        xl = pd.ExcelFile(io.BytesIO(content))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"파일 읽기 실패: {e}")
+
+    total_created, total_updated, total_errors = 0, 0, []
+
+    for sheet_name in xl.sheet_names:
+        df = xl.parse(sheet_name, dtype=str)
+        df = df.where(pd.notna(df), None)
+
+        # 해외 시트 여부 판단
+        is_overseas = "국가코드" in df.columns
+
+        for idx, row in df.iterrows():
+            our_ref = _str(row.get("OurRef"))
+            if not our_ref or our_ref.startswith("(사용X)"):
+                continue
+
+            try:
+                result = await db.execute(select(Case).where(Case.case_number == our_ref))
+                case = result.scalar_one_or_none()
+
+                country = _str(row.get("국가코드")) if is_overseas else "KR"
+                client_name = _str(row.get("의뢰인")) or _str(row.get("출원인")) or "-"
+
+                fields = {
+                    "case_number": our_ref,
+                    "your_ref": _str(row.get("YourRef")),
+                    "title_ko": _str(row.get("국문명칭")),
+                    "title_en": _str(row.get("영문명칭")),
+                    "client_name": client_name,
+                    "applicant": _str(row.get("출원인")),
+                    "applicant_contact": _str(row.get("출원인담당자")) or _str(row.get("출원인담당")),
+                    "country": country or "KR",
+                    "division": _str(row.get("구분")),
+                    "case_type": _str(row.get("권리")),
+                    "app_category": _str(row.get("출원구분")),
+                    "app_kind": _str(row.get("출원종류")),
+                    "attorney": _str(row.get("담당변리사")),
+                    "department": _str(row.get("부서")),
+                    "status": _str(row.get("현재상태")),
+                    "app_number": _str(row.get("출원번호")),
+                    "reg_number": _str(row.get("등록번호")),
+                    "intl_app_number": _str(row.get("국제출원번호")),
+                    "ipc": _str(row.get("IPC분류")),
+                    "notes": _str(row.get("비고")),
+                    "deadline": _date(row.get("사건마감일")),
+                    "app_deadline": _date(row.get("출원마감일")),
+                    "reg_deadline": _date(row.get("등록마감일")),
+                    "annual_deadline": _date(row.get("연차마감일")),
+                    "filed_at": _date(row.get("출원일")),
+                    "registered_at": _date(row.get("등록일")),
+                    "received_at": _date(row.get("접수일")),
+                }
+
+                if case:
+                    for k, v in fields.items():
+                        if v is not None:
+                            setattr(case, k, v)
+                    total_updated += 1
+                else:
+                    case = Case(**{k: v for k, v in fields.items() if v is not None})
+                    case.case_number = our_ref
+                    case.client_name = client_name
+                    case.country = country or "KR"
+                    db.add(case)
+                    await db.flush()
+                    total_created += 1
+
+                # 출원인담당자 → Party
+                contact = _str(row.get("출원인담당자")) or _str(row.get("출원인담당"))
+                if contact and case.id:
+                    ex = await db.execute(
+                        select(Party).where(Party.case_id == case.id, Party.name == contact)
+                    )
+                    if not ex.scalar_one_or_none():
+                        db.add(Party(case_id=case.id, name=contact, role="client_contact"))
+
+            except Exception as e:
+                total_errors.append({"sheet": sheet_name, "row": idx + 2, "ref": our_ref, "error": str(e)})
+
+    await db.commit()
+    return {
+        "status": "ok",
+        "created": total_created,
+        "updated": total_updated,
+        "total": total_created + total_updated,
+        "errors": total_errors[:20],
+    }
+
+
+# ----------------------------------------------------------------
+# 고객 DB 업로드 (연락처)
 # ----------------------------------------------------------------
 @router.post("/upload-contacts")
 async def upload_contacts(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    고객 DB 엑셀 업로드.
-    컬럼: E-mail, 고객구분, 고객명, 고객명(영문), 국가, 특허고객번호, 회사명 등
-    이메일이 있는 고객은 Party로 등록 → 메일 자동 매칭에 활용
-    """
     content = await file.read()
     try:
-        df = pd.read_excel(io.BytesIO(content), dtype=str, engine="xlrd" if file.filename.endswith(".xls") else "openpyxl")
+        engine = "xlrd" if file.filename.endswith(".xls") else "openpyxl"
+        df = pd.read_excel(io.BytesIO(content), dtype=str, engine=engine)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"파일 읽기 실패: {e}")
 
@@ -68,141 +201,56 @@ async def upload_contacts(
 
     for _, row in df.iterrows():
         email = _str(row.get("E-mail"))
-        name = _str(row.get("고객명"))
-        name_en = _str(row.get("고객명(영문)"))
+        name = _str(row.get("고객명")) or _str(row.get("고객명(영문)"))
         company = _str(row.get("회사명"))
         role_raw = _str(row.get("고객구분")) or "client"
 
-        # 이메일도 이름도 없으면 스킵
         if not email and not name:
             skipped += 1
             continue
 
-        # 역할 매핑
-        role = "client"
-        if role_raw and "의뢰인" in role_raw:
-            role = "client"
-        elif role_raw and "대리인" in role_raw:
-            role = "opponent_agent"
+        role = "opponent_agent" if role_raw and "대리인" in role_raw else "client"
 
-        # 이메일로 기존 Party 조회
         existing = None
         if email:
-            result = await db.execute(
-                select(Party).where(Party.email == email.lower())
-            )
+            result = await db.execute(select(Party).where(Party.email == email.lower()))
             existing = result.scalar_one_or_none()
 
         if existing:
-            # 업데이트
             existing.name = name or existing.name
             existing.org_name = company or existing.org_name
-            existing.role = role
             updated += 1
         else:
-            # 신규 등록 (case_id 없는 독립 연락처)
-            party = Party(
-                name=name or name_en,
+            db.add(Party(
+                name=name,
                 email=email.lower() if email else None,
                 role=role,
                 org_name=company,
-            )
-            db.add(party)
+            ))
             created += 1
 
     await db.commit()
-    return {
-        "status": "ok",
-        "created": created,
-        "updated": updated,
-        "skipped": skipped,
-        "total": created + updated,
-    }
+    return {"status": "ok", "created": created, "updated": updated, "skipped": skipped, "total": created + updated}
 
 
 # ----------------------------------------------------------------
-# 사건 DB 업로드
-# ----------------------------------------------------------------
-@router.post("/upload")
-async def upload_cases(
-    file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    사건 DB 엑셀 업로드.
-    필수 컬럼: 사건번호, 고객사명, 국가
-    """
-    content = await file.read()
-    try:
-        df = pd.read_excel(io.BytesIO(content), dtype=str)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"파일 읽기 실패: {e}")
-
-    required = {"사건번호", "고객사명", "국가"}
-    missing = required - set(df.columns)
-    if missing:
-        raise HTTPException(status_code=400, detail=f"필수 컬럼 없음: {missing}")
-
-    df = df.where(pd.notna(df), None)
-    created, updated, errors = 0, 0, []
-
-    for idx, row in df.iterrows():
-        case_number = _str(row.get("사건번호"))
-        if not case_number:
-            continue
-        try:
-            result = await db.execute(select(Case).where(Case.case_number == case_number))
-            case = result.scalar_one_or_none()
-            deadline = _parse_date(row.get("마감일"))
-
-            if case:
-                case.client_name = _str(row.get("고객사명")) or case.client_name
-                case.client_domain = _str(row.get("고객도메인")) or case.client_domain
-                case.country = _str(row.get("국가")) or case.country
-                case.case_type = _str(row.get("사건유형")) or case.case_type
-                case.status = _str(row.get("상태")) or case.status
-                case.app_number = _str(row.get("출원번호")) or case.app_number
-                if deadline:
-                    case.deadline = deadline
-                updated += 1
-            else:
-                case = Case(
-                    case_number=case_number,
-                    app_number=_str(row.get("출원번호")),
-                    client_name=_str(row.get("고객사명")) or "-",
-                    client_domain=_str(row.get("고객도메인")),
-                    country=_str(row.get("국가")) or "-",
-                    case_type=_str(row.get("사건유형")),
-                    status=_str(row.get("상태")),
-                    deadline=deadline,
-                )
-                db.add(case)
-                created += 1
-        except Exception as e:
-            errors.append({"row": idx + 2, "error": str(e)})
-
-    await db.commit()
-    return {"status": "ok", "created": created, "updated": updated, "errors": errors}
-
-
-# ----------------------------------------------------------------
-# 엑셀 템플릿 다운로드 (사건 DB용)
+# 템플릿 다운로드
 # ----------------------------------------------------------------
 @router.get("/template")
 async def download_template():
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "사건목록"
-    headers = ["사건번호", "출원번호", "등록번호", "고객사명", "고객도메인", "국가", "사건유형", "상태", "마감일"]
+    headers = ["OurRef", "국문명칭", "영문명칭", "의뢰인", "권리", "출원번호", "등록번호", "국가코드", "담당변리사", "부서", "현재상태", "사건마감일"]
     ws.append(headers)
-    ws.append(["KR-2024-00001", "10-2024-0012345", "", "삼성전자", "samsung.com", "KR", "patent", "출원중", "2025-06-30"])
+    ws.append(["PM24001KR", "인공지능 기반 특허 분석 시스템", "AI-based Patent Analysis System", "삼성전자", "특허", "10-2024-0012345", "", "KR", "김동일", "특허1부", "출원중", "2025-06-30"])
 
     from openpyxl.styles import Font, PatternFill
     for cell in ws[1]:
         cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="2563EB")
+        cell.fill = PatternFill("solid", fgColor="2C3E8C")
     for col in ws.columns:
-        ws.column_dimensions[col[0].column_letter].width = 15
+        ws.column_dimensions[col[0].column_letter].width = 18
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -214,16 +262,43 @@ async def download_template():
     )
 
 
+# ----------------------------------------------------------------
+# 헬퍼
+# ----------------------------------------------------------------
+def _case_to_dict(c: Case) -> dict:
+    return {
+        "id": str(c.id),
+        "case_number": c.case_number,
+        "your_ref": c.your_ref,
+        "title_ko": c.title_ko,
+        "title_en": c.title_en,
+        "client_name": c.client_name,
+        "applicant": c.applicant,
+        "applicant_contact": c.applicant_contact,
+        "country": c.country,
+        "division": c.division,
+        "case_type": c.case_type,
+        "attorney": c.attorney,
+        "department": c.department,
+        "status": c.status,
+        "app_number": c.app_number,
+        "reg_number": c.reg_number,
+        "deadline": c.deadline.isoformat() if c.deadline else None,
+        "filed_at": c.filed_at.isoformat() if c.filed_at else None,
+        "registered_at": c.registered_at.isoformat() if c.registered_at else None,
+        "notes": c.notes,
+        "ipc": c.ipc,
+    }
+
+
 def _str(val) -> str | None:
-    if val is None:
-        return None
+    if val is None: return None
     s = str(val).strip()
-    return s if s and s.lower() not in ("nan", "none") else None
+    return s if s and s.lower() not in ("nan", "none", "") else None
 
 
-def _parse_date(val) -> date | None:
-    if not val:
-        return None
+def _date(val) -> date | None:
+    if not val: return None
     try:
         return pd.to_datetime(str(val)).date()
     except Exception:
