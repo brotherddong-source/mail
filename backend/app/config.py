@@ -19,6 +19,16 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://patent:patent_secret@localhost:5432/patent_mail"
     database_url_sync: str = "postgresql://patent:patent_secret@localhost:5432/patent_mail"
 
+    @property
+    def async_database_url(self) -> str:
+        """Railway는 postgresql:// 로 주므로 asyncpg 드라이버로 자동 변환"""
+        url = self.database_url
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        elif url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        return url
+
     # Redis
     redis_url: str = "redis://localhost:6379"
     celery_broker_url: str = "redis://localhost:6379/0"
