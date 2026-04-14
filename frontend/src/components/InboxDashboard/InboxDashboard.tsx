@@ -42,11 +42,13 @@ export default function InboxDashboard() {
       {/* 헤더 */}
       <header className="border-b bg-white px-6 py-4 shadow-sm">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">특허사무소 메일 인박스</h1>
+          <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="IPLAB" className="h-8 object-contain" />
+            <div>
             <p className="text-sm text-gray-500">
               전체 {mails.length}건 · 회신 필요 {replyNeeded}건 · 긴급 {high}건
             </p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {user && (

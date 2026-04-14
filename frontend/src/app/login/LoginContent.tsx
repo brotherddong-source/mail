@@ -11,9 +11,8 @@ export default function LoginContent() {
     <div className="flex min-h-screen items-center justify-center bg-gray-50">
       <div className="w-full max-w-sm rounded-2xl border bg-white p-8 shadow-lg">
         <div className="mb-8 text-center">
-          <div className="text-5xl mb-3">⚖️</div>
-          <h1 className="text-xl font-bold text-gray-900">IP-LAB 메일 시스템</h1>
-          <p className="mt-1 text-sm text-gray-500">특허사무소 메일 자동화</p>
+          <img src="/logo.png" alt="IPLAB" className="mx-auto mb-4 h-14 object-contain" />
+          <p className="mt-1 text-sm text-gray-500">특허사무소 메일 자동화 시스템</p>
         </div>
 
         {error === "unauthorized" && (
