@@ -12,15 +12,22 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # 시작 시 직원 시드 실행
+async def _background_seed() -> None:
+    """uvicorn이 healthcheck에 응답할 수 있도록 백그라운드에서 시드 실행"""
     try:
         async with AsyncSessionLocal() as db:
             from app.domain.users.seed import seed_users
             await seed_users(db)
+        logger.info("직원 시드 완료")
     except Exception as e:
         logger.error("직원 시드 실패 (무시하고 계속): %s", e)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    import asyncio
+    # 백그라운드로 시드 예약 — lifespan이 즉시 yield해서 healthcheck가 바로 통과
+    asyncio.create_task(_background_seed())
     yield
 
 
