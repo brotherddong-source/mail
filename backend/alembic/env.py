@@ -4,7 +4,7 @@ from logging.config import fileConfig
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
 
@@ -25,11 +25,21 @@ target_metadata = Base.metadata
 
 def _get_db_url() -> str:
     """
-    Railway는 DATABASE_URL 또는 POSTGRES_URL 환경변수를 제공.
-    pydantic-settings의 Settings 클래스가 이미 변환해주므로 그걸 사용.
+    Railway DATABASE_URL / POSTGRES_URL 환경변수를 직접 읽어 asyncpg URL로 변환.
+    없으면 alembic.ini 값 사용.
     """
-    from app.config import get_settings
-    return get_settings().async_database_url
+    url = (
+        os.environ.get("DATABASE_URL")
+        or os.environ.get("POSTGRES_URL")
+        or os.environ.get("POSTGRESQL_URL")
+        or config.get_main_option("sqlalchemy.url", "")
+    )
+    # postgres:// 또는 postgresql:// → postgresql+asyncpg://
+    url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    # 이미 asyncpg면 중복 치환 방지
+    url = url.replace("postgresql+asyncpg+asyncpg://", "postgresql+asyncpg://")
+    return url
 
 
 def run_migrations_offline() -> None:
@@ -52,10 +62,11 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     url = _get_db_url()
-    connectable = async_engine_from_config(
-        {"sqlalchemy.url": url},
-        prefix="sqlalchemy.",
+    print(f"[alembic] DB URL host: {url.split('@')[-1].split('/')[0] if '@' in url else 'unknown'}")
+    connectable = create_async_engine(
+        url,
         poolclass=pool.NullPool,
+        connect_args={"timeout": 5},  # 빠르게 실패하도록 5초 제한
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
