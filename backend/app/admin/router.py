@@ -1,11 +1,15 @@
 """
 관리 엔드포인트 - Webhook 등록, 수동 동기화 등
 """
-from fastapi import APIRouter, BackgroundTasks, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
+import logging
+
+from fastapi import APIRouter, BackgroundTasks
+from sqlalchemy import select
 
 from app.connectors.outlook.webhook import SubscriptionManager
-from app.database import get_db
+from app.database import AsyncSessionLocal
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -58,5 +62,33 @@ async def _run_sync():
             for msg in messages:
                 asyncio.create_task(_async_process(user_id=mailbox, message_id=msg["id"]))
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).error("sync 실패 (%s): %s", mailbox, e)
+            logger.error("sync 실패 (%s): %s", mailbox, e)
+
+
+@router.post("/reanalyze")
+async def reanalyze_errors(background_tasks: BackgroundTasks):
+    """처리 실패(error) 또는 미분석(pending) 메일 재분석 트리거"""
+    background_tasks.add_task(_run_reanalyze)
+    return {"status": "reanalyze_started"}
+
+
+async def _run_reanalyze():
+    """error/pending 상태 메일을 AI 재분석"""
+    import asyncio
+    from app.domain.mails.models import MailMessage
+    from app.workflow.inbound import _analyze_and_draft
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(MailMessage.id, MailMessage.graph_message_id)
+            .where(MailMessage.processing_status.in_(["error", "pending"]))
+            .limit(50)
+        )
+        rows = result.all()
+
+    logger.info("재분석 대상: %d건", len(rows))
+    for mail_id, graph_message_id in rows:
+        try:
+            await _analyze_and_draft(mail_id, graph_message_id)
+        except Exception as e:
+            logger.error("재분석 실패 (mail_id=%s): %s", mail_id, e)
