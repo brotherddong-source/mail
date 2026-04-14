@@ -3,7 +3,6 @@ Claude API 기반 메일 분석 엔진
 - 분류 / 요약 / 번역 / 마감 탐지
 - 민감정보 마스킹 옵션
 """
-import json
 import logging
 import re
 
@@ -29,7 +28,9 @@ MAX_TOKENS = 2048
 
 class MailAnalyzer:
     def __init__(self):
-        self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        if not settings.anthropic_api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY가 설정되지 않았습니다.")
+        self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
     def _mask_sensitive(self, text: str) -> str:
         """민감정보 마스킹"""
@@ -57,7 +58,7 @@ class MailAnalyzer:
         user_prompt = build_analyze_prompt(mail_data, case_info)
 
         try:
-            response = self._client.messages.create(
+            response = await self._client.messages.create(
                 model=MODEL,
                 max_tokens=MAX_TOKENS,
                 system=SYSTEM_PROMPT,
@@ -78,6 +79,6 @@ class MailAnalyzer:
 
             raise RuntimeError("AI 응답에서 분석 결과를 찾을 수 없습니다.")
 
-        except anthropic.APIError as e:
-            logger.error("Claude API 오류: %s", e)
+        except Exception as e:
+            logger.error("Claude API 오류 (type=%s): %s", type(e).__name__, e)
             raise

@@ -20,7 +20,9 @@ MAX_TOKENS = 4096
 
 class MailDrafter:
     def __init__(self):
-        self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        if not settings.anthropic_api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY가 설정되지 않았습니다.")
+        self._client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
     async def draft(
         self,
@@ -42,7 +44,7 @@ class MailDrafter:
         )
 
         try:
-            response = self._client.messages.create(
+            response = await self._client.messages.create(
                 model=MODEL,
                 max_tokens=MAX_TOKENS,
                 system=SYSTEM_PROMPT,
@@ -63,6 +65,6 @@ class MailDrafter:
 
             raise RuntimeError("AI 응답에서 초안 결과를 찾을 수 없습니다.")
 
-        except anthropic.APIError as e:
-            logger.error("Claude API 오류 (초안 생성): %s", e)
+        except Exception as e:
+            logger.error("Claude API 오류 (초안 생성, type=%s): %s", type(e).__name__, e)
             raise
