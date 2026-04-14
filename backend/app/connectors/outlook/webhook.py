@@ -119,6 +119,7 @@ async def _process_notification(notification: dict) -> None:
     if len(parts) >= 4 and parts[2].lower() == "messages":
         message_id = parts[3]
         user_id = parts[1]
-        # 인바운드 파이프라인 트리거 (Celery task)
-        from app.workflow.inbound import process_incoming_mail
-        process_incoming_mail.delay(user_id=user_id, message_id=message_id)
+        # Celery 없이 asyncio task로 직접 실행 (Redis 불필요)
+        import asyncio
+        from app.workflow.inbound import _async_process
+        asyncio.create_task(_async_process(user_id=user_id, message_id=message_id))

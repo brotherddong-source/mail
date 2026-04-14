@@ -48,14 +48,15 @@ async def manual_sync(background_tasks: BackgroundTasks):
 
 
 async def _run_sync():
+    import asyncio
     from app.connectors.outlook.delta_sync import DeltaSyncService
-    from app.workflow.inbound import process_incoming_mail
+    from app.workflow.inbound import _async_process
     for mailbox in SHARED_MAILBOXES:
         try:
             sync = DeltaSyncService(mailbox)
             messages = await sync.sync()
             for msg in messages:
-                process_incoming_mail.delay(user_id=mailbox, message_id=msg["id"])
+                asyncio.create_task(_async_process(user_id=mailbox, message_id=msg["id"]))
         except Exception as e:
             import logging
             logging.getLogger(__name__).error("sync 실패 (%s): %s", mailbox, e)
