@@ -6,10 +6,8 @@
 - 엑셀 템플릿 다운로드
 """
 import io
-from datetime import date
+from datetime import date, datetime
 
-import openpyxl
-import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, select
@@ -48,12 +46,40 @@ async def list_cases(
     return [_case_to_dict(c) for c in cases]
 
 
+# ----------------------------------------------------------------
+# 템플릿 다운로드 — /{case_id} 와일드카드보다 먼저 등록
+# ----------------------------------------------------------------
 @router.get("/template")
-async def download_template_alias():
-    """GET /api/cases/template — /{case_id} 보다 먼저 등록해야 와일드카드에 안 잡힘"""
-    return await download_template()
+async def download_template():
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "사건목록"
+    headers = ["OurRef", "국문명칭", "영문명칭", "의뢰인", "권리", "출원번호", "등록번호", "국가코드", "담당변리사", "부서", "현재상태", "사건마감일"]
+    ws.append(headers)
+    ws.append(["PM24001KR", "인공지능 기반 특허 분석 시스템", "AI-based Patent Analysis System", "삼성전자", "특허", "10-2024-0012345", "", "KR", "김동일", "특허1부", "출원중", "2025-06-30"])
+
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="2C3E8C")
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = 18
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=cases_template.xlsx"},
+    )
 
 
+# ----------------------------------------------------------------
+# 사건 단건 조회
+# ----------------------------------------------------------------
 @router.get("/{case_id}")
 async def get_case(case_id: str, db: AsyncSession = Depends(get_db)):
     # case_id 또는 case_number로 조회
@@ -88,6 +114,8 @@ async def upload_cases(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
+    import pandas as pd
+
     content = await file.read()
     try:
         xl = pd.ExcelFile(io.BytesIO(content))
@@ -189,6 +217,8 @@ async def upload_contacts(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
+    import pandas as pd
+
     content = await file.read()
     try:
         engine = "xlrd" if file.filename.endswith(".xls") else "openpyxl"
@@ -234,35 +264,6 @@ async def upload_contacts(
 
 
 # ----------------------------------------------------------------
-# 템플릿 다운로드
-# ----------------------------------------------------------------
-@router.get("/template")
-async def download_template():
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "사건목록"
-    headers = ["OurRef", "국문명칭", "영문명칭", "의뢰인", "권리", "출원번호", "등록번호", "국가코드", "담당변리사", "부서", "현재상태", "사건마감일"]
-    ws.append(headers)
-    ws.append(["PM24001KR", "인공지능 기반 특허 분석 시스템", "AI-based Patent Analysis System", "삼성전자", "특허", "10-2024-0012345", "", "KR", "김동일", "특허1부", "출원중", "2025-06-30"])
-
-    from openpyxl.styles import Font, PatternFill
-    for cell in ws[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="2C3E8C")
-    for col in ws.columns:
-        ws.column_dimensions[col[0].column_letter].width = 18
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=cases_template.xlsx"},
-    )
-
-
-# ----------------------------------------------------------------
 # 헬퍼
 # ----------------------------------------------------------------
 def _case_to_dict(c: Case) -> dict:
@@ -292,14 +293,26 @@ def _case_to_dict(c: Case) -> dict:
 
 
 def _str(val) -> str | None:
-    if val is None: return None
+    if val is None:
+        return None
     s = str(val).strip()
     return s if s and s.lower() not in ("nan", "none", "") else None
 
 
 def _date(val) -> date | None:
-    if not val: return None
+    if not val:
+        return None
+    s = str(val).strip()
+    if not s or s.lower() in ("nan", "none", ""):
+        return None
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y%m%d"):
+        try:
+            return datetime.strptime(s[:10], fmt).date()
+        except ValueError:
+            continue
+    # fallback: pandas handles Excel serial dates and other edge cases
     try:
-        return pd.to_datetime(str(val)).date()
+        import pandas as pd
+        return pd.to_datetime(s).date()
     except Exception:
         return None
