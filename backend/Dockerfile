@@ -8,13 +8,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# uv 설치
-RUN pip install uv
+# pip 업그레이드 및 의존성 직접 설치
+RUN pip install --upgrade pip
 
 # 의존성 설치
 COPY pyproject.toml .
-RUN uv pip install --system -e ".[dev]"
+RUN pip install fastapi uvicorn[standard] sqlalchemy alembic pydantic pydantic-settings \
+    asyncpg psycopg2-binary msal httpx redis anthropic python-dotenv \
+    python-multipart python-jose[cryptography] passlib[bcrypt] celery jinja2
 
 COPY . .
 
 EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
