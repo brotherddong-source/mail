@@ -17,12 +17,24 @@ router = APIRouter()
 @router.get("")
 async def list_mails(
     status: str | None = Query(default=None),
+    search: str | None = Query(default=None, description="제목/발신자/요약 검색"),
     limit: int = Query(default=50, le=200),
     db: AsyncSession = Depends(get_db),
 ):
     q = select(MailMessage).order_by(desc(MailMessage.received_at)).limit(limit)
     if status and status != "all":
         q = q.where(MailMessage.processing_status == status)
+    if search:
+        like = f"%{search}%"
+        from sqlalchemy import or_
+        q = q.where(
+            or_(
+                MailMessage.subject.ilike(like),
+                MailMessage.from_email.ilike(like),
+                MailMessage.from_name.ilike(like),
+                MailMessage.ai_summary.ilike(like),
+            )
+        )
 
     result = await db.execute(q)
     mails = result.scalars().all()

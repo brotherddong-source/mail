@@ -14,9 +14,16 @@ TEMP_REVIEWER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 TEMP_USER_ID = "me"  # Graph API user
 
 
+class RecipientEdit(BaseModel):
+    email: str
+    name: str | None = None
+
+
 class ApproveRequest(BaseModel):
     edited_body: str | None = None
     use_ko: bool = True
+    edited_to: list[RecipientEdit] | None = None
+    edited_cc: list[RecipientEdit] | None = None
 
 
 class RejectRequest(BaseModel):
@@ -36,6 +43,8 @@ async def approve_draft(
             reviewer_id=TEMP_REVIEWER_ID,
             edited_body=body.edited_body,
             use_ko=body.use_ko,
+            edited_to=[r.model_dump() for r in body.edited_to] if body.edited_to else None,
+            edited_cc=[r.model_dump() for r in body.edited_cc] if body.edited_cc else None,
         )
         return {"status": "sent", "subject": subject}
     except ValueError as e:

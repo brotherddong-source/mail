@@ -3,6 +3,11 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { mailApi, DraftResponse } from "@/lib/api";
 
+interface RecipientEntry {
+  email: string;
+  name: string;
+}
+
 interface Props {
   draft: DraftResponse;
   mailId: string;
@@ -17,6 +22,16 @@ export default function DraftApproval({ draft, mailId }: Props) {
   const [rejectReason, setRejectReason] = useState("");
   const [showReject, setShowReject] = useState(false);
 
+  // 수신자 상태 관리
+  const [toList, setToList] = useState<RecipientEntry[]>(
+    (draft.suggested_to || []).map((r) => ({ email: r.email, name: r.name || "" }))
+  );
+  const [ccList, setCcList] = useState<RecipientEntry[]>(
+    (draft.suggested_cc || []).map((r) => ({ email: r.email, name: r.name || "" }))
+  );
+  const [newTo, setNewTo] = useState("");
+  const [newCc, setNewCc] = useState("");
+
   const handleLangChange = (l: "ko" | "en") => {
     setLang(l);
     setBody(l === "ko" ? draft.generated_body_ko || "" : draft.generated_body_en || "");
@@ -27,6 +42,8 @@ export default function DraftApproval({ draft, mailId }: Props) {
       mailApi.approveDraft(draft.id, {
         edited_body: body,
         use_ko: lang === "ko",
+        edited_to: toList,
+        edited_cc: ccList,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["mail", mailId] });
@@ -41,34 +58,137 @@ export default function DraftApproval({ draft, mailId }: Props) {
     },
   });
 
-  const toList = draft.suggested_to || [];
-  const ccList = draft.suggested_cc || [];
+  const addRecipient = (type: "to" | "cc") => {
+    const value = type === "to" ? newTo.trim() : newCc.trim();
+    if (!value) return;
+    // "이름 <email>" 또는 "email" 형식 파싱
+    const match = value.match(/^(.+?)\s*<(.+?)>$/) || value.match(/^(.+?)\s+(.+@.+)$/);
+    const entry: RecipientEntry = match
+      ? { name: match[1].trim(), email: match[2].trim() }
+      : { name: "", email: value };
+
+    if (type === "to") {
+      setToList([...toList, entry]);
+      setNewTo("");
+    } else {
+      setCcList([...ccList, entry]);
+      setNewCc("");
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent, type: "to" | "cc") => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addRecipient(type);
+    }
+  };
+
+  const removeTo = (idx: number) => setToList(toList.filter((_, i) => i !== idx));
+  const removeCc = (idx: number) => setCcList(ccList.filter((_, i) => i !== idx));
+
+  const updateToEmail = (idx: number, email: string) => {
+    const next = [...toList];
+    next[idx] = { ...next[idx], email };
+    setToList(next);
+  };
+
+  const updateCcEmail = (idx: number, email: string) => {
+    const next = [...ccList];
+    next[idx] = { ...next[idx], email };
+    setCcList(next);
+  };
 
   return (
     <div className="space-y-4">
-      {/* 수신자 추천 */}
+      {/* 수신자 편집 */}
       <div className="rounded-lg border p-4">
-        <h3 className="mb-3 text-sm font-semibold text-gray-700">추천 수신자</h3>
-        <div className="space-y-2">
-          {toList.map((r, i) => (
-            <div key={i} className="flex items-center gap-2 text-sm">
-              <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-700">TO</span>
-              <span className="font-medium">{r.name || r.email}</span>
-              <span className="text-gray-400">&lt;{r.email}&gt;</span>
-              <span className="text-xs text-gray-400">— {r.reason}</span>
+        <h3 className="mb-3 text-sm font-semibold text-gray-700">수신자</h3>
+
+        {/* TO */}
+        <div className="mb-3">
+          <div className="mb-1 text-xs font-medium text-gray-500">TO</div>
+          <div className="space-y-1">
+            {toList.map((r, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-700 shrink-0">TO</span>
+                <input
+                  type="text"
+                  value={r.email}
+                  onChange={(e) => updateToEmail(i, e.target.value)}
+                  className="flex-1 rounded border px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"
+                />
+                {r.name && <span className="text-xs text-gray-400 shrink-0">{r.name}</span>}
+                <button
+                  onClick={() => removeTo(i)}
+                  className="text-xs text-red-400 hover:text-red-600 shrink-0"
+                >
+                  삭제
+                </button>
+              </div>
+            ))}
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newTo}
+                onChange={(e) => setNewTo(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, "to")}
+                placeholder="이메일 추가 (Enter로 추가)"
+                className="flex-1 rounded border border-dashed px-2 py-1 text-xs text-gray-500 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-300"
+              />
+              <button
+                onClick={() => addRecipient("to")}
+                className="text-xs text-blue-500 hover:text-blue-700 shrink-0"
+              >
+                추가
+              </button>
             </div>
-          ))}
-          {ccList.map((r, i) => (
-            <div key={i} className="flex items-center gap-2 text-sm">
-              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600">CC</span>
-              <span className="font-medium">{r.name || r.email}</span>
-              <span className="text-gray-400">&lt;{r.email}&gt;</span>
-            </div>
-          ))}
-          {toList.length === 0 && ccList.length === 0 && (
-            <p className="text-xs text-gray-400">수신자 추천 없음</p>
-          )}
+          </div>
         </div>
+
+        {/* CC */}
+        <div>
+          <div className="mb-1 text-xs font-medium text-gray-500">CC</div>
+          <div className="space-y-1">
+            {ccList.map((r, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600 shrink-0">CC</span>
+                <input
+                  type="text"
+                  value={r.email}
+                  onChange={(e) => updateCcEmail(i, e.target.value)}
+                  className="flex-1 rounded border px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-300"
+                />
+                {r.name && <span className="text-xs text-gray-400 shrink-0">{r.name}</span>}
+                <button
+                  onClick={() => removeCc(i)}
+                  className="text-xs text-red-400 hover:text-red-600 shrink-0"
+                >
+                  삭제
+                </button>
+              </div>
+            ))}
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newCc}
+                onChange={(e) => setNewCc(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, "cc")}
+                placeholder="이메일 추가 (Enter로 추가)"
+                className="flex-1 rounded border border-dashed px-2 py-1 text-xs text-gray-500 placeholder-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-300"
+              />
+              <button
+                onClick={() => addRecipient("cc")}
+                className="text-xs text-blue-500 hover:text-blue-700 shrink-0"
+              >
+                추가
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {toList.length === 0 && (
+          <p className="mt-2 text-xs text-red-400">TO 수신자가 없습니다. 최소 1명을 추가해주세요.</p>
+        )}
       </div>
 
       {/* 초안 편집 */}
@@ -103,10 +223,10 @@ export default function DraftApproval({ draft, mailId }: Props) {
       <div className="flex gap-3">
         <button
           onClick={() => approveMutation.mutate()}
-          disabled={approveMutation.isPending}
+          disabled={approveMutation.isPending || toList.length === 0}
           className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
         >
-          {approveMutation.isPending ? "발송 중..." : "승인 후 발송"}
+          {approveMutation.isPending ? "발송 중..." : `승인 후 발송 (TO: ${toList.length}명)`}
         </button>
         <button
           onClick={() => setShowReject(!showReject)}

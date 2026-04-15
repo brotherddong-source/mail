@@ -122,12 +122,19 @@ export interface UploadResult {
 // API Calls
 // ----------------------------------------------------------------
 export const mailApi = {
-  list: (params?: { status?: string }) =>
+  list: (params?: { status?: string; search?: string }) =>
     api.get<MailMessage[]>("/api/mails", { params }).then((r) => r.data),
   detail: (id: string) =>
     api.get<MailDetail>(`/api/mails/${id}`).then((r) => r.data),
-  approveDraft: (draftId: string, body: { edited_body?: string; use_ko?: boolean }) =>
-    api.post(`/api/drafts/${draftId}/approve`, body).then((r) => r.data),
+  approveDraft: (
+    draftId: string,
+    body: {
+      edited_body?: string;
+      use_ko?: boolean;
+      edited_to?: { email: string; name?: string }[];
+      edited_cc?: { email: string; name?: string }[];
+    },
+  ) => api.post(`/api/drafts/${draftId}/approve`, body).then((r) => r.data),
   rejectDraft: (draftId: string, reason: string) =>
     api.post(`/api/drafts/${draftId}/reject`, { reason }).then((r) => r.data),
 };

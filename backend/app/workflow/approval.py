@@ -26,10 +26,13 @@ class ApprovalService:
         reviewer_id: uuid.UUID,
         edited_body: str | None = None,
         use_ko: bool = True,
+        edited_to: list[dict] | None = None,
+        edited_cc: list[dict] | None = None,
     ) -> str:
         """
         초안 승인 후 발송.
         edited_body: 검토자가 수정한 본문 (없으면 AI 생성본 사용)
+        edited_to/edited_cc: 검토자가 수정한 수신자 목록 (없으면 AI 추천 사용)
         """
         draft = await self._get_draft(draft_id)
         if not draft:
@@ -41,6 +44,10 @@ class ApprovalService:
 
         if edited_body:
             draft.reviewer_body = edited_body
+        if edited_to is not None:
+            draft.suggested_to = edited_to
+        if edited_cc is not None:
+            draft.suggested_cc = edited_cc
 
         draft.approval_status = "approved"
         draft.reviewer_id = reviewer_id
