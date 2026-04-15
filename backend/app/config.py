@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     azure_openai_api_key: str = ""
     azure_openai_deployment: str = ""
 
+    # 동기화 대상 메일함 (쉼표 구분)
+    sync_mailboxes: str = "ip@ip-lab.co.kr,mail@ip-lab.co.kr"
+
+    @property
+    def sync_mailbox_list(self) -> list[str]:
+        return [m.strip() for m in self.sync_mailboxes.split(",") if m.strip()]
+
     @property
     def is_development(self) -> bool:
         return self.app_env == "development"

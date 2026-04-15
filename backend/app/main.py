@@ -12,6 +12,28 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+async def _run_migrations() -> None:
+    """서버 시작 시 alembic upgrade head 실행 — DB 스키마를 최신으로 유지"""
+    import subprocess
+    import os
+    try:
+        # alembic은 backend/ 디렉토리 기준
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        result = subprocess.run(
+            ["python", "-m", "alembic", "upgrade", "head"],
+            cwd=backend_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            logger.info("DB 마이그레이션 완료: %s", result.stdout.strip())
+        else:
+            logger.error("DB 마이그레이션 실패: %s", result.stderr.strip())
+    except Exception as e:
+        logger.error("DB 마이그레이션 실행 오류 (무시하고 계속): %s", e)
+
+
 async def _background_seed() -> None:
     """uvicorn이 healthcheck에 응답할 수 있도록 백그라운드에서 시드 실행"""
     try:
@@ -26,6 +48,8 @@ async def _background_seed() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import asyncio
+    # 마이그레이션 먼저 실행 (동기, 빠르게 완료)
+    await _run_migrations()
     # 백그라운드로 시드 예약 — lifespan이 즉시 yield해서 healthcheck가 바로 통과
     asyncio.create_task(_background_seed())
     yield

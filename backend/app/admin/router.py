@@ -6,18 +6,18 @@ import logging
 from fastapi import APIRouter, BackgroundTasks
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.connectors.outlook.webhook import SubscriptionManager
 from app.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 router = APIRouter()
 
-# 공용 메일함 목록 (Application 권한으로 접근)
-SHARED_MAILBOXES = [
-    "ip@ip-lab.co.kr",
-    "mail@ip-lab.co.kr",
-]
+
+def _get_mailboxes() -> list[str]:
+    return settings.sync_mailbox_list
 
 
 @router.post("/webhook/register")
@@ -25,7 +25,7 @@ async def register_webhook():
     """공용 메일함 Graph Webhook Subscription 등록/갱신"""
     results = []
     errors = []
-    for mailbox in SHARED_MAILBOXES:
+    for mailbox in _get_mailboxes():
         try:
             manager = SubscriptionManager(mailbox)
             result = await manager.create_or_renew()
@@ -48,14 +48,14 @@ async def register_webhook():
 async def manual_sync(background_tasks: BackgroundTasks):
     """수동 Delta Query 동기화 트리거 (공용 메일함)"""
     background_tasks.add_task(_run_sync)
-    return {"status": "sync_started", "mailboxes": SHARED_MAILBOXES}
+    return {"status": "sync_started", "mailboxes": _get_mailboxes()}
 
 
 async def _run_sync():
     import asyncio
     from app.connectors.outlook.delta_sync import DeltaSyncService
     from app.workflow.inbound import _async_process
-    for mailbox in SHARED_MAILBOXES:
+    for mailbox in _get_mailboxes():
         try:
             sync = DeltaSyncService(mailbox)
             messages = await sync.sync()
