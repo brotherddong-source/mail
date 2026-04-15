@@ -1,6 +1,13 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
-import { mailApi } from "@/lib/api";
+import {
+  mailApi,
+  classifyMailbox,
+  isOutgoingMail as checkOutgoing,
+  MAILBOX_LABEL,
+  MAILBOX_COLOR,
+  MailMessage,
+} from "@/lib/api";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import DraftApproval from "../DraftApproval/DraftApproval";
@@ -12,6 +19,14 @@ interface Props {
 }
 
 type Tab = "summary" | "original" | "translation" | "draft";
+
+/** AI 요약 텍스트를 문장 단위로 줄바꿈 처리 */
+function formatSummary(text: string): string {
+  // 이미 줄바꿈이 있으면 그대로 유지
+  if (text.includes("\n")) return text;
+  // 마침표/물음표/느낌표 뒤에 공백이 오면 줄바꿈 삽입
+  return text.replace(/([.?!。])\s+/g, "$1\n");
+}
 
 export default function MailDetail({ mailId, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("summary");
@@ -34,6 +49,10 @@ export default function MailDetail({ mailId, onClose }: Props) {
     ? format(new Date(mail.received_at), "yyyy.MM.dd HH:mm", { locale: ko })
     : "-";
 
+  const outgoing = checkOutgoing(mail as unknown as MailMessage);
+  const mailbox = classifyMailbox(mail as unknown as MailMessage);
+  const mbColor = MAILBOX_COLOR[mailbox];
+
   const pendingDraft = mail.drafts?.find((d) => d.approval_status === "pending");
 
   return (
@@ -42,10 +61,30 @@ export default function MailDetail({ mailId, onClose }: Props) {
       <div className="border-b px-6 py-4">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
-            <h2 className="text-base font-semibold text-gray-900 truncate">{mail.subject}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-semibold text-gray-900 truncate">{mail.subject}</h2>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${mbColor.bg} ${mbColor.text}`}>
+                {MAILBOX_LABEL[mailbox]}
+              </span>
+              {outgoing ? (
+                <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">발신</span>
+              ) : (
+                <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">수신</span>
+              )}
+            </div>
             <div className="mt-1 text-sm text-gray-500">
               {mail.from_name} &lt;{mail.from_email}&gt; · {receivedAt}
             </div>
+            {mail.to_emails?.length > 0 && (
+              <div className="mt-0.5 text-xs text-gray-400">
+                To: {mail.to_emails.map((e) => e.name || e.address).join(", ")}
+              </div>
+            )}
+            {mail.cc_emails?.length > 0 && (
+              <div className="text-xs text-gray-400">
+                Cc: {mail.cc_emails.map((e) => e.name || e.address).join(", ")}
+              </div>
+            )}
             {mail.case_number && (
               <div className="mt-1 text-xs text-blue-700 font-mono">
                 사건: {mail.case_number} ({mail.client_name})
@@ -77,7 +116,9 @@ export default function MailDetail({ mailId, onClose }: Props) {
           <div className="space-y-4">
             <div className="rounded-lg bg-blue-50 p-4">
               <h3 className="mb-2 text-sm font-semibold text-blue-800">AI 요약</h3>
-              <p className="text-sm text-blue-900 leading-relaxed">{mail.ai_summary || "(요약 없음)"}</p>
+              <p className="text-sm text-blue-900 leading-relaxed whitespace-pre-line">
+                {mail.ai_summary ? formatSummary(mail.ai_summary) : "(요약 없음)"}
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="rounded border p-3">

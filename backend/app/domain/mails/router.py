@@ -40,6 +40,8 @@ async def list_mails(
             "graph_message_id": m.graph_message_id,
             "from_email": m.from_email,
             "from_name": m.from_name,
+            "to_emails": m.to_emails or [],
+            "cc_emails": m.cc_emails or [],
             "subject": m.subject,
             "received_at": m.received_at.isoformat() if m.received_at else None,
             "has_attachments": m.has_attachments,

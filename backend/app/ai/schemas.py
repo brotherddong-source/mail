@@ -30,7 +30,7 @@ class SuggestedRecipient(BaseModel):
 
 
 class MailAnalysisResult(BaseModel):
-    summary_ko: str = Field(description="한국어 요약 (3~5문장)")
+    summary_ko: str = Field(description="한국어 요약 (3~5문장, 각 문장을 줄바꿈으로 구분)")
     translation_ko: Optional[str] = Field(default=None, description="원문이 영어인 경우 한국어 번역")
     classification: Classification
     requires_reply: bool

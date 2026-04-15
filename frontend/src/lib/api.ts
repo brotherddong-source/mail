@@ -13,6 +13,8 @@ export interface MailMessage {
   graph_message_id: string;
   from_email: string;
   from_name: string;
+  to_emails: { address: string; name: string }[];
+  cc_emails: { address: string; name: string }[];
   subject: string;
   received_at: string;
   has_attachments: boolean;
@@ -25,6 +27,49 @@ export interface MailMessage {
   ai_classification: string | null;
   processing_status: string;
 }
+
+// ----------------------------------------------------------------
+// 메일함 분류
+// ----------------------------------------------------------------
+export type Mailbox = "representative" | "institutional" | "personal";
+
+const REPRESENTATIVE_EMAIL = "ip@ip-lab.co.kr";
+const INSTITUTIONAL_EMAIL = "mail@ip-lab.co.kr";
+const OUR_DOMAIN = "ip-lab.co.kr";
+
+/** 메일이 어느 메일함에 속하는지 판별 */
+export function classifyMailbox(mail: MailMessage): Mailbox {
+  const allAddresses = [
+    ...(mail.to_emails || []).map((e) => (e.address || "").toLowerCase()),
+    ...(mail.cc_emails || []).map((e) => (e.address || "").toLowerCase()),
+  ];
+  // 발신 메일인 경우 from_email로도 판별
+  const from = (mail.from_email || "").toLowerCase();
+  if (from === REPRESENTATIVE_EMAIL || allAddresses.includes(REPRESENTATIVE_EMAIL)) {
+    return "representative";
+  }
+  if (from === INSTITUTIONAL_EMAIL || allAddresses.includes(INSTITUTIONAL_EMAIL)) {
+    return "institutional";
+  }
+  return "personal";
+}
+
+/** 발신자가 ip-lab.co.kr 도메인이면 발신 메일 */
+export function isOutgoingMail(mail: MailMessage): boolean {
+  return (mail.from_email || "").toLowerCase().endsWith(`@${OUR_DOMAIN}`);
+}
+
+export const MAILBOX_LABEL: Record<Mailbox, string> = {
+  representative: "대표메일",
+  institutional: "기관메일",
+  personal: "개인메일",
+};
+
+export const MAILBOX_COLOR: Record<Mailbox, { bg: string; text: string; dot: string }> = {
+  representative: { bg: "bg-indigo-50", text: "text-indigo-700", dot: "bg-indigo-500" },
+  institutional: { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500" },
+  personal: { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" },
+};
 
 export interface MailDetail extends MailMessage {
   body_text: string | null;
