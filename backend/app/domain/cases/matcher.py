@@ -21,23 +21,51 @@ logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------
 # 사건번호 패턴 (특허사무소 내부 번호 및 공식 출원번호 형식)
-# 필요 시 추가/수정
 # ----------------------------------------------------------------
+
+# IP LAB 내부 사건번호 패턴 (Our Ref)
+# 실제 사용 예: PL24125PCEP, PM23188PCJP, PNN25208JP5, PU26144KR,
+#              PII260900PCN, DI26004CN, LM25009KR, FCI26KR00098
+# 규칙: 영문 2~4자 + 숫자 2~4자 + 영숫자 후미 (국가코드·PCT코드 포함)
+# 단, PCT 슬래시 구성요소(예: KR2024)와 공식 출원번호 접두어(EP/CN/US)는 제외
+_IPLAB_OUR_REF = re.compile(
+    r"(?<![/\-])"                               # PCT·하이픈 구성요소 제외
+    r"\b"
+    r"(?!EP\d|CN\d|US\d)"                       # 공식 출원번호 접두어 제외
+    r"([A-Z]{2,4}\d{2,4}[A-Z0-9]{0,10}(?:PC[A-Z]{2,4})?\d{0,4})"
+    r"\b",
+)
+
+# Your Ref 패턴 — 외국 대리인마다 형식이 달라 단독 신뢰 불가.
+# Our Ref와 함께 등장할 때만 보조로 사용.
+_YOUR_REF_LABEL = re.compile(
+    r"(?:Your\s*Ref\.?|YourRef)\s*[:：]?\s*([A-Z0-9\-/\.]{4,30})",
+    re.IGNORECASE,
+)
+
 CASE_NUMBER_PATTERNS = [
-    # 내부 사건번호: KR-2024-00123, JP-2023-P-001
-    re.compile(r"\b([A-Z]{2}-\d{4}-[A-Z0-9-]{3,15})\b"),
-    # 한국 출원번호: 10-2024-0012345
-    re.compile(r"\b(1[0-9]-\d{4}-\d{7})\b"),
-    # 미국 출원번호: 17/123,456 또는 US17/123456
-    re.compile(r"\b(?:US)?(\d{2}/\d{3},?\d{3})\b"),
-    # PCT 출원번호: PCT/KR2024/001234
+    # ── IP LAB 내부 Our Ref (최우선 — DB case_number와 1:1 매칭) ──
+    # "Our Ref.: PL24125PCEP" / "Our Ref: PM23188PCJP" 형태
+    re.compile(
+        r"(?:Our\s*Ref\.?|OurRef)\s*[:：]?\s*"
+        r"([A-Z]{2,4}\d{2,4}[A-Z0-9]{0,10}(?:PC[A-Z]{2,4})?\d{0,4})",
+        re.IGNORECASE,
+    ),
+    # ── 한국 출원번호: 10-2024-0012345 (뒤에 한글 '호' 등이 붙어도 인식) ──
+    re.compile(r"\b(1[0-9]-\d{4}-\d{7})"),
+    # ── PCT 출원번호: PCT/KR2024/001234 ──
     re.compile(r"\b(PCT/[A-Z]{2}\d{4}/\d{6})\b"),
-    # 유럽 출원번호: EP24123456
-    re.compile(r"\b(EP\d{8})\b"),
-    # 일본 출원번호: 特願2024-123456
-    re.compile(r"特願(\d{4}-\d+)"),
-    # 중국 출원번호: CN202410123456
+    # ── 유럽 출원번호: EP24123456.7 (점 포함) → 점 없는 패턴은 뒤에 .숫자가 없을 때만 ──
+    re.compile(r"\b(EP\s*\d{8}\.\d)\b"),
+    re.compile(r"\b(EP\s*\d{8})(?!\.\d)\b"),
+    # ── 미국 출원번호: 17/123,456 ──
+    re.compile(r"\b(\d{2}/\d{3},?\d{3})\b"),
+    # ── 중국 출원번호: CN202410123456 ──
     re.compile(r"\b(CN\d{12,15})\b"),
+    # ── 일본 출원번호: 特願2024-123456 ──
+    re.compile(r"特願(\d{4}-\d+)"),
+    # ── Our Ref 라벨 없이 단독 등장하는 IP LAB 형식 (보조 — 오탐 가능성 있음) ──
+    _IPLAB_OUR_REF,
 ]
 
 
@@ -133,12 +161,19 @@ class CaseMatcher:
         )
 
     def _extract_case_numbers(self, text: str) -> list[str]:
-        """텍스트에서 모든 사건번호 후보 추출"""
-        found: list[str] = []
-        for pattern in CASE_NUMBER_PATTERNS:
-            matches = pattern.findall(text)
-            found.extend(matches)
-        return list(dict.fromkeys(found))  # 순서 유지 중복 제거
+        """
+        텍스트에서 사건번호 후보 추출.
+        Our Ref 라벨이 붙은 값을 앞쪽에 배치해 매칭 우선순위를 높임.
+        """
+        # Our Ref 라벨 명시 → 가장 신뢰도 높음
+        labeled: list[str] = CASE_NUMBER_PATTERNS[0].findall(text)
+        # 나머지 패턴
+        others: list[str] = []
+        for pattern in CASE_NUMBER_PATTERNS[1:]:
+            others.extend(pattern.findall(text))
+        # 공백 정규화 (EP 24843562.0 → EP24843562.0)
+        all_refs = [r.replace(" ", "") for r in labeled + others]
+        return list(dict.fromkeys(all_refs))  # 순서 유지 중복 제거
 
     def _extract_domain(self, email: str) -> str | None:
         """이메일에서 도메인 추출 (무료 메일 서비스 제외)"""

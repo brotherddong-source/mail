@@ -1,8 +1,8 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -57,6 +57,14 @@ class Case(Base):
     ipc: Mapped[str | None] = mapped_column(String(100))         # IPC분류
     notes: Mapped[str | None] = mapped_column(Text)              # 비고
 
+    # ── 메일 파싱 추출 필드 ──
+    exam_requested: Mapped[str | None] = mapped_column(String(1))    # 심사청구 Y/N
+    overseas_deadline: Mapped[date | None] = mapped_column(Date)     # 해외출원마감일
+    # 우선권: [{"app_no": "10-2025-XXXXXXX", "country": "KR", "date": "2025-05-26"}]
+    priority_info: Mapped[list | None] = mapped_column(JSONB)
+    # 국가별 외국 대리인 Ref: [{"country":"JP","agent":"ITOH","their_ref":"JLABP2607"}]
+    foreign_agent_refs: Mapped[list | None] = mapped_column(JSONB)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
@@ -80,5 +88,6 @@ class Party(Base):
     email: Mapped[str | None] = mapped_column(String(200))
     role: Mapped[str | None] = mapped_column(String(50))
     org_name: Mapped[str | None] = mapped_column(String(200))
+    is_inventor: Mapped[bool] = mapped_column(Boolean, default=False)
 
     case: Mapped["Case | None"] = relationship("Case", back_populates="parties")
