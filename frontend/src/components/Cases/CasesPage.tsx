@@ -1,47 +1,55 @@
 "use client";
 import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { caseApi, Case } from "@/lib/api";
+import { caseApi, Case, Contact } from "@/lib/api";
 import Link from "next/link";
 
-type UploadType = "contacts" | "cases";
+type UploadType = "cases" | "contacts";
+type ViewTab = "cases" | "contacts";
 
 export default function CasesPage() {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [uploadType, setUploadType] = useState<UploadType>("cases");
-  const [result, setResult] = useState<any>(null);
-  const [dragging, setDragging] = useState(false);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
-  const { data: cases = [], isLoading } = useQuery({
-    queryKey: ["cases"],
-    queryFn: caseApi.list,
+  // 뷰 탭
+  const [viewTab, setViewTab] = useState<ViewTab>("cases");
+  const [caseSearch, setCaseSearch] = useState("");
+  const [caseSearchInput, setCaseSearchInput] = useState("");
+  const [contactSearch, setContactSearch] = useState("");
+  const [contactSearchInput, setContactSearchInput] = useState("");
+
+  // 업로드
+  const [uploadType, setUploadType] = useState<UploadType>("cases");
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [uploadResult, setUploadResult] = useState<any>(null);
+  const [dragging, setDragging] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
+
+  const { data: cases = [], isLoading: casesLoading } = useQuery({
+    queryKey: ["cases", caseSearch],
+    queryFn: () => caseApi.list(caseSearch || undefined),
+  });
+
+  const { data: contacts = [], isLoading: contactsLoading } = useQuery({
+    queryKey: ["contacts", contactSearch],
+    queryFn: () => caseApi.listContacts(contactSearch || undefined),
   });
 
   const uploadMutation = useMutation({
     mutationFn: (file: File) =>
-      uploadType === "contacts"
-        ? caseApi.uploadContacts(file)
-        : caseApi.uploadCases(file),
+      uploadType === "contacts" ? caseApi.uploadContacts(file) : caseApi.uploadCases(file),
     onSuccess: (data) => {
-      setResult(data);
+      setUploadResult(data);
       setPendingFile(null);
       qc.invalidateQueries({ queryKey: ["cases"] });
-    },
-    onError: () => {
-      // 파일은 유지해서 재시도 가능하게
+      qc.invalidateQueries({ queryKey: ["contacts"] });
     },
   });
 
   const handleFileSelect = (file: File) => {
-    setResult(null);
+    setUploadResult(null);
     uploadMutation.reset();
     setPendingFile(file);
-  };
-
-  const handleUpload = () => {
-    if (pendingFile) uploadMutation.mutate(pendingFile);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -53,239 +61,271 @@ export default function CasesPage() {
 
   const clearFile = () => {
     setPendingFile(null);
-    setResult(null);
+    setUploadResult(null);
     uploadMutation.reset();
     if (fileRef.current) fileRef.current.value = "";
   };
 
+  const ROLE_LABEL: Record<string, string> = {
+    client: "출원인",
+    client_contact: "담당자",
+    opponent_agent: "대리인",
+    inventor: "발명자",
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="flex h-screen flex-col bg-gray-50">
       {/* 헤더 */}
-      <header className="border-b bg-white px-6 py-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">사건 / 고객 관리</h1>
-            <p className="text-sm text-gray-500">등록 사건 {cases.length}건</p>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={caseApi.downloadTemplate}
-              className="rounded-md border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
-            >
-              사건 템플릿 다운로드
-            </button>
-            <Link
-              href="/"
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-            >
-              인박스로 이동
-            </Link>
-          </div>
+      <header className="flex shrink-0 items-center justify-between border-b bg-white px-6 py-3 shadow-sm">
+        <h1 className="text-base font-bold text-gray-900">사건 / 고객 관리</h1>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { setShowUpload(!showUpload); clearFile(); }}
+            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            {showUpload ? "닫기" : "엑셀 업로드"}
+          </button>
+          <button onClick={caseApi.downloadTemplate} className="rounded-md border px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
+            템플릿 다운로드
+          </button>
+          <Link href="/" className="rounded-md border px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
+            인박스
+          </Link>
         </div>
       </header>
 
-      <div className="mx-auto max-w-5xl px-6 py-8 space-y-8">
-        {/* 업로드 섹션 */}
-        <div className="rounded-xl border bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-base font-semibold text-gray-800">엑셀 업로드</h2>
-
-          {/* 업로드 타입 선택 */}
-          <div className="mb-4 flex gap-2">
-            <button
-              onClick={() => { setUploadType("cases"); clearFile(); }}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                uploadType === "cases"
-                  ? "bg-blue-600 text-white"
-                  : "border text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              사건 DB 업로드
-              <span className="ml-1.5 text-xs opacity-75">(사건번호/마감일)</span>
-            </button>
-            <button
-              onClick={() => { setUploadType("contacts"); clearFile(); }}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                uploadType === "contacts"
-                  ? "bg-blue-600 text-white"
-                  : "border text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              고객 DB 업로드
-              <span className="ml-1.5 text-xs opacity-75">(연락처/이메일)</span>
-            </button>
-          </div>
-
-          {uploadType === "cases" ? (
-            <p className="mb-4 text-xs text-gray-500">
-              필수 컬럼: <span className="font-mono font-semibold">OurRef</span> (사건번호) · 선택: 국문명칭, 영문명칭, 의뢰인, 출원번호, 권리, 현재상태, 사건마감일, 국가코드(해외시트)
-            </p>
-          ) : (
-            <p className="mb-4 text-xs text-gray-500">
-              필수 컬럼: E-mail, 고객명, 고객구분, 회사명
-            </p>
-          )}
-
-          {/* 파일 선택 영역 */}
-          {!pendingFile ? (
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={handleDrop}
-              onClick={() => fileRef.current?.click()}
-              className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed py-10 transition-colors ${
-                dragging ? "border-blue-400 bg-blue-50" : "border-gray-300 hover:border-blue-400 hover:bg-gray-50"
-              }`}
-            >
-              <div className="text-4xl mb-3">📂</div>
-              <p className="text-sm font-medium text-gray-700">
-                엑셀 파일을 드래그하거나 클릭하여 선택
-              </p>
-              <p className="text-xs text-gray-400 mt-1">.xlsx, .xls 지원</p>
+      {/* 업로드 패널 (토글) */}
+      {showUpload && (
+        <div className="border-b bg-white px-6 py-4">
+          <div className="mx-auto max-w-2xl space-y-3">
+            {/* 타입 선택 */}
+            <div className="flex gap-2">
+              {(["cases", "contacts"] as UploadType[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => { setUploadType(t); clearFile(); }}
+                  className={`rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${
+                    uploadType === t ? "bg-blue-600 text-white" : "border text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  {t === "cases" ? "사건 DB" : "고객 DB"}
+                </button>
+              ))}
             </div>
-          ) : (
-            /* 파일 선택됨 → 업로드 버튼 표시 */
-            <div className="rounded-lg border-2 border-blue-300 bg-blue-50 p-5">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">📄</span>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">{pendingFile.name}</p>
-                    <p className="text-xs text-gray-500">{(pendingFile.size / 1024).toFixed(1)} KB</p>
-                  </div>
+
+            <p className="text-xs text-gray-500">
+              {uploadType === "cases"
+                ? "필수 컬럼: OurRef (사건번호) · 자동 인식: 국문명칭, 의뢰인, 출원번호, 현재상태, 사건마감일 등"
+                : "자동 인식: E-mail, 고객명, 고객구분, 회사명"}
+            </p>
+
+            {/* 파일 선택 / 업로드 버튼 */}
+            {!pendingFile ? (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={handleDrop}
+                onClick={() => fileRef.current?.click()}
+                className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed py-6 transition-colors ${
+                  dragging ? "border-blue-400 bg-blue-50" : "border-gray-300 hover:border-blue-400 hover:bg-gray-50"
+                }`}
+              >
+                <p className="text-sm font-medium text-gray-600">파일 선택 또는 드래그</p>
+                <p className="text-xs text-gray-400 mt-0.5">.xlsx .xls 지원</p>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between rounded-lg border-2 border-blue-300 bg-blue-50 px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">{pendingFile.name}</p>
+                  <p className="text-xs text-gray-500">{(pendingFile.size / 1024).toFixed(1)} KB</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex gap-2">
+                  <button onClick={clearFile} className="rounded border px-3 py-1.5 text-xs text-gray-500 hover:bg-white">취소</button>
                   <button
-                    onClick={clearFile}
-                    className="rounded border px-3 py-1.5 text-xs text-gray-500 hover:bg-white"
-                  >
-                    취소
-                  </button>
-                  <button
-                    onClick={handleUpload}
+                    onClick={() => uploadMutation.mutate(pendingFile)}
                     disabled={uploadMutation.isPending}
-                    className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                    className="rounded-lg bg-blue-600 px-5 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                   >
                     {uploadMutation.isPending ? "업로드 중..." : "업로드 시작"}
                   </button>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".xlsx,.xls"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleFileSelect(f);
-              e.target.value = "";
-            }}
-          />
+            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f); e.target.value = ""; }} />
 
-          {/* 업로드 중 */}
-          {uploadMutation.isPending && (
-            <div className="mt-4 rounded-lg bg-blue-50 p-4 text-sm text-blue-700 flex items-center gap-2">
-              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-              </svg>
-              업로드 중... 잠시 기다려주세요.
-            </div>
-          )}
-
-          {/* 성공 결과 */}
-          {result && (
-            <div className="mt-4 rounded-lg bg-green-50 p-4">
-              <p className="text-sm font-semibold text-green-800 mb-2">✅ 업로드 완료</p>
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div className="rounded bg-white p-3 shadow-sm">
-                  <div className="text-2xl font-bold text-green-600">{result.created}</div>
-                  <div className="text-xs text-gray-500">신규 등록</div>
-                </div>
-                <div className="rounded bg-white p-3 shadow-sm">
-                  <div className="text-2xl font-bold text-blue-600">{result.updated}</div>
-                  <div className="text-xs text-gray-500">업데이트</div>
-                </div>
-                <div className="rounded bg-white p-3 shadow-sm">
-                  <div className="text-2xl font-bold text-gray-500">{result.errors?.length ?? 0}</div>
-                  <div className="text-xs text-gray-500">오류</div>
-                </div>
+            {/* 결과 */}
+            {uploadResult && (
+              <div className="rounded-lg bg-green-50 p-3 text-sm">
+                <span className="font-semibold text-green-800">완료 — </span>
+                <span className="text-green-700">신규 {uploadResult.created}건 · 업데이트 {uploadResult.updated}건</span>
+                {uploadResult.errors?.length > 0 && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-xs text-red-600">오류 {uploadResult.errors.length}건 보기</summary>
+                    <div className="mt-1 space-y-0.5">
+                      {uploadResult.errors.map((e: any, i: number) => (
+                        <p key={i} className="text-xs text-red-500">{e.sheet} {e.row}행 ({e.ref}): {e.error}</p>
+                      ))}
+                    </div>
+                  </details>
+                )}
               </div>
-              {result.errors?.length > 0 && (
-                <div className="mt-3 rounded bg-red-50 p-2 text-xs text-red-600 space-y-1">
-                  {result.errors.map((e: any, i: number) => (
-                    <div key={i}>{e.sheet} {e.row}행 ({e.ref}): {e.error}</div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+            )}
+            {uploadMutation.isError && (
+              <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                <p className="font-semibold">업로드 실패</p>
+                <p className="text-xs mt-1">{(uploadMutation.error as any)?.response?.data?.detail || "서버 오류"}</p>
+                <p className="text-xs text-red-400 mt-1">.xls 파일이면 Excel에서 .xlsx로 다시 저장 후 시도하세요.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
-          {/* 실패 */}
-          {uploadMutation.isError && (
-            <div className="mt-4 rounded-lg bg-red-50 p-4 text-sm text-red-700">
-              <p className="font-semibold mb-1">업로드 실패</p>
-              <p className="text-xs">{(uploadMutation.error as any)?.response?.data?.detail || "서버 오류가 발생했습니다."}</p>
-              <p className="mt-2 text-xs text-red-500">
-                · .xls 파일이라면 Excel에서 다른 이름으로 저장 → .xlsx 형식으로 변환 후 재시도<br/>
-                · 첫 번째 행이 컬럼명인지 확인 (OurRef, 국문명칭 등)
-              </p>
+      {/* 탭 + 본문 */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* 탭 바 */}
+        <div className="flex items-center justify-between border-b bg-white px-6 py-2">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setViewTab("cases")}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                viewTab === "cases" ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100"
+              }`}
+            >
+              사건 목록 {!casesLoading && <span className="ml-1 opacity-75">({cases.length})</span>}
+            </button>
+            <button
+              onClick={() => setViewTab("contacts")}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                viewTab === "contacts" ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100"
+              }`}
+            >
+              고객 / 연락처 {!contactsLoading && <span className="ml-1 opacity-75">({contacts.length})</span>}
+            </button>
+          </div>
+
+          {/* 검색 */}
+          {viewTab === "cases" ? (
+            <div className="flex items-center gap-1">
+              <input
+                value={caseSearchInput}
+                onChange={(e) => setCaseSearchInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && setCaseSearch(caseSearchInput)}
+                placeholder="사건번호, 고객사, 명칭 검색..."
+                className="w-56 rounded border px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300"
+              />
+              <button onClick={() => setCaseSearch(caseSearchInput)} className="rounded bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700">검색</button>
+              {caseSearch && <button onClick={() => { setCaseSearch(""); setCaseSearchInput(""); }} className="text-xs text-gray-400 hover:text-gray-600">초기화</button>}
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <input
+                value={contactSearchInput}
+                onChange={(e) => setContactSearchInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && setContactSearch(contactSearchInput)}
+                placeholder="이름, 이메일, 회사 검색..."
+                className="w-56 rounded border px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300"
+              />
+              <button onClick={() => setContactSearch(contactSearchInput)} className="rounded bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700">검색</button>
+              {contactSearch && <button onClick={() => { setContactSearch(""); setContactSearchInput(""); }} className="text-xs text-gray-400 hover:text-gray-600">초기화</button>}
             </div>
           )}
         </div>
 
-        {/* 사건 목록 */}
-        <div className="rounded-xl border bg-white shadow-sm">
-          <div className="border-b px-6 py-4">
-            <h2 className="text-base font-semibold text-gray-800">등록된 사건 목록</h2>
-          </div>
-          {isLoading ? (
-            <div className="flex h-24 items-center justify-center text-gray-400">로딩 중...</div>
-          ) : cases.length === 0 ? (
-            <div className="flex h-24 items-center justify-center text-gray-400">
-              등록된 사건이 없습니다. 엑셀을 업로드해주세요.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
+        {/* ── 사건 목록 ── */}
+        {viewTab === "cases" && (
+          <div className="flex-1 overflow-auto">
+            {casesLoading ? (
+              <div className="flex h-32 items-center justify-center text-gray-400">로딩 중...</div>
+            ) : cases.length === 0 ? (
+              <div className="flex h-32 items-center justify-center text-gray-400">
+                {caseSearch ? "검색 결과가 없습니다." : "등록된 사건이 없습니다. 엑셀을 업로드해주세요."}
+              </div>
+            ) : (
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-xs text-gray-500">
-                  <tr>
-                    <th className="px-4 py-3 text-left">사건번호</th>
-                    <th className="px-4 py-3 text-left">출원번호</th>
-                    <th className="px-4 py-3 text-left">고객사</th>
-                    <th className="px-4 py-3 text-left">국가</th>
-                    <th className="px-4 py-3 text-left">유형</th>
-                    <th className="px-4 py-3 text-left">상태</th>
-                    <th className="px-4 py-3 text-left">마감일</th>
+                <thead className="sticky top-0 bg-gray-50 text-xs text-gray-500">
+                  <tr className="border-b">
+                    <th className="px-4 py-2.5 text-left">사건번호</th>
+                    <th className="px-4 py-2.5 text-left">국문명칭</th>
+                    <th className="px-4 py-2.5 text-left">의뢰인</th>
+                    <th className="px-4 py-2.5 text-left">출원번호</th>
+                    <th className="px-4 py-2.5 text-left">국가</th>
+                    <th className="px-4 py-2.5 text-left">권리</th>
+                    <th className="px-4 py-2.5 text-left">담당</th>
+                    <th className="px-4 py-2.5 text-left">상태</th>
+                    <th className="px-4 py-2.5 text-left">마감일</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {cases.map((c: Case) => (
-                    <tr key={c.id} className="border-t hover:bg-gray-50">
-                      <td className="px-4 py-3 font-mono text-xs text-blue-700">{c.case_number}</td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">{c.app_number || "-"}</td>
-                      <td className="px-4 py-3 font-medium">{c.client_name}</td>
-                      <td className="px-4 py-3">{c.country}</td>
-                      <td className="px-4 py-3 text-gray-500">{c.case_type || "-"}</td>
-                      <td className="px-4 py-3">
-                        {c.status && (
-                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs">{c.status}</span>
-                        )}
+                  {cases.map((c: Case) => {
+                    const isOverdue = c.deadline && new Date(c.deadline) < new Date();
+                    return (
+                      <tr key={c.id} className="border-b hover:bg-blue-50 transition-colors">
+                        <td className="px-4 py-2 font-mono text-xs text-blue-700 whitespace-nowrap">{c.case_number}</td>
+                        <td className="px-4 py-2 text-xs text-gray-700 max-w-[200px] truncate" title={c.title_ko ?? ""}>{c.title_ko || "-"}</td>
+                        <td className="px-4 py-2 text-xs font-medium text-gray-900 whitespace-nowrap">{c.client_name}</td>
+                        <td className="px-4 py-2 text-xs text-gray-500 whitespace-nowrap">{c.app_number || "-"}</td>
+                        <td className="px-4 py-2 text-xs text-gray-500">{c.country}</td>
+                        <td className="px-4 py-2 text-xs text-gray-500">{c.case_type || "-"}</td>
+                        <td className="px-4 py-2 text-xs text-gray-500 whitespace-nowrap">{(c as any).attorney || "-"}</td>
+                        <td className="px-4 py-2">
+                          {c.status && (
+                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{c.status}</span>
+                          )}
+                        </td>
+                        <td className={`px-4 py-2 text-xs whitespace-nowrap ${isOverdue ? "text-red-600 font-semibold" : "text-gray-500"}`}>
+                          {c.deadline || "-"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* ── 고객 / 연락처 목록 ── */}
+        {viewTab === "contacts" && (
+          <div className="flex-1 overflow-auto">
+            {contactsLoading ? (
+              <div className="flex h-32 items-center justify-center text-gray-400">로딩 중...</div>
+            ) : contacts.length === 0 ? (
+              <div className="flex h-32 items-center justify-center text-gray-400">
+                {contactSearch ? "검색 결과가 없습니다." : "등록된 연락처가 없습니다. 고객 DB 엑셀을 업로드해주세요."}
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-gray-50 text-xs text-gray-500">
+                  <tr className="border-b">
+                    <th className="px-4 py-2.5 text-left">이름</th>
+                    <th className="px-4 py-2.5 text-left">이메일</th>
+                    <th className="px-4 py-2.5 text-left">회사</th>
+                    <th className="px-4 py-2.5 text-left">구분</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {contacts.map((c: Contact) => (
+                    <tr key={c.id} className="border-b hover:bg-blue-50 transition-colors">
+                      <td className="px-4 py-2 text-xs font-medium text-gray-900">{c.name || "-"}</td>
+                      <td className="px-4 py-2 text-xs text-blue-600">
+                        {c.email ? <a href={`mailto:${c.email}`} className="hover:underline">{c.email}</a> : "-"}
                       </td>
-                      <td className={`px-4 py-3 text-xs ${
-                        c.deadline && new Date(c.deadline) < new Date() ? "text-red-600 font-semibold" : "text-gray-500"
-                      }`}>
-                        {c.deadline || "-"}
+                      <td className="px-4 py-2 text-xs text-gray-600">{c.org_name || "-"}</td>
+                      <td className="px-4 py-2">
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+                          {ROLE_LABEL[c.role ?? ""] || c.role || "-"}
+                        </span>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -203,8 +203,20 @@ export const signatureApi = {
     api.post<{ status: string; created: number }>("/api/signatures/seed").then((r) => r.data),
 };
 
+export interface Contact {
+  id: string;
+  name: string | null;
+  email: string | null;
+  role: string | null;
+  org_name: string | null;
+  case_id: string | null;
+}
+
 export const caseApi = {
-  list: () => api.get<Case[]>("/api/cases").then((r) => r.data),
+  list: (q?: string) =>
+    api.get<Case[]>("/api/cases", { params: q ? { q } : {} }).then((r) => r.data),
+  listContacts: (q?: string) =>
+    api.get<Contact[]>("/api/cases/contacts", { params: q ? { q } : {} }).then((r) => r.data),
   uploadCases: (file: File) => {
     const form = new FormData();
     form.append("file", file);

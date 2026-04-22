@@ -47,6 +47,40 @@ async def list_cases(
 
 
 # ----------------------------------------------------------------
+# 연락처(Party) 목록
+# ----------------------------------------------------------------
+@router.get("/contacts")
+async def list_contacts(
+    q: str | None = Query(default=None, description="이름/이메일/회사 검색"),
+    limit: int = Query(default=200, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(Party).order_by(Party.name).limit(limit)
+    if q:
+        like = f"%{q}%"
+        stmt = select(Party).where(
+            or_(
+                Party.name.ilike(like),
+                Party.email.ilike(like),
+                Party.org_name.ilike(like),
+            )
+        ).limit(limit)
+    result = await db.execute(stmt)
+    parties = result.scalars().all()
+    return [
+        {
+            "id": str(p.id),
+            "name": p.name,
+            "email": p.email,
+            "role": p.role,
+            "org_name": p.org_name,
+            "case_id": str(p.case_id) if p.case_id else None,
+        }
+        for p in parties
+    ]
+
+
+# ----------------------------------------------------------------
 # 템플릿 다운로드 — /{case_id} 와일드카드보다 먼저 등록
 # ----------------------------------------------------------------
 @router.get("/template")
@@ -159,71 +193,70 @@ async def upload_cases(
 
         for idx, row in df.iterrows():
             our_ref = _str(row.get("OurRef"))
-            if not our_ref or our_ref.startswith("(사용X)"):
+            if not our_ref or str(our_ref).startswith("(사용X)"):
                 continue
 
             try:
-                result = await db.execute(select(Case).where(Case.case_number == our_ref))
-                case = result.scalar_one_or_none()
+                # savepoint: 이 행이 실패해도 다른 행에 영향 없음
+                async with db.begin_nested():
+                    result = await db.execute(select(Case).where(Case.case_number == our_ref))
+                    case = result.scalar_one_or_none()
 
-                country = _str(row.get("국가코드")) if is_overseas else "KR"
-                client_name = _str(row.get("의뢰인")) or _str(row.get("출원인")) or "-"
+                    country = _str(row.get("국가코드")) if is_overseas else "KR"
+                    client_name = _str(row.get("의뢰인")) or _str(row.get("출원인")) or "-"
 
-                fields = {
-                    "case_number": our_ref,
-                    "your_ref": _str(row.get("YourRef")),
-                    "title_ko": _str(row.get("국문명칭")),
-                    "title_en": _str(row.get("영문명칭")),
-                    "client_name": client_name,
-                    "applicant": _str(row.get("출원인")),
-                    "applicant_contact": _str(row.get("출원인담당자")) or _str(row.get("출원인담당")),
-                    "country": country or "KR",
-                    "division": _str(row.get("구분")),
-                    "case_type": _str(row.get("권리")),
-                    "app_category": _str(row.get("출원구분")),
-                    "app_kind": _str(row.get("출원종류")),
-                    "attorney": _str(row.get("담당변리사")),
-                    "department": _str(row.get("부서")),
-                    "status": _str(row.get("현재상태")),
-                    "app_number": _str(row.get("출원번호")),
-                    "reg_number": _str(row.get("등록번호")),
-                    "intl_app_number": _str(row.get("국제출원번호")),
-                    "ipc": _str(row.get("IPC분류")),
-                    "notes": _str(row.get("비고")),
-                    "deadline": _date(row.get("사건마감일")),
-                    "app_deadline": _date(row.get("출원마감일")),
-                    "reg_deadline": _date(row.get("등록마감일")),
-                    "annual_deadline": _date(row.get("연차마감일")),
-                    "filed_at": _date(row.get("출원일")),
-                    "registered_at": _date(row.get("등록일")),
-                    "received_at": _date(row.get("접수일")),
-                }
+                    fields = {
+                        "case_number": our_ref,
+                        "your_ref": _str(row.get("YourRef")),
+                        "title_ko": _str(row.get("국문명칭")),
+                        "title_en": _str(row.get("영문명칭")),
+                        "client_name": client_name,
+                        "applicant": _str(row.get("출원인")),
+                        "applicant_contact": _str(row.get("출원인담당자")) or _str(row.get("출원인담당")),
+                        "country": country or "KR",
+                        "division": _str(row.get("구분")),
+                        "case_type": _str(row.get("권리")),
+                        "app_category": _str(row.get("출원구분")),
+                        "app_kind": _str(row.get("출원종류")),
+                        "attorney": _str(row.get("담당변리사")) or _str(row.get("출원|담당")),
+                        "department": _str(row.get("부서")),
+                        "status": _str(row.get("현재상태")),
+                        "app_number": _str(row.get("출원번호")),
+                        "reg_number": _str(row.get("등록번호")),
+                        "intl_app_number": _str(row.get("국제출원번호")),
+                        "ipc": _str(row.get("IPC분류")),
+                        "notes": _str(row.get("비고")),
+                        "deadline": _date(row.get("사건마감일")),
+                        "app_deadline": _date(row.get("출원마감일")),
+                        "reg_deadline": _date(row.get("등록마감일")),
+                        "annual_deadline": _date(row.get("연차마감일")),
+                        "filed_at": _date(row.get("출원일")),
+                        "registered_at": _date(row.get("등록일")),
+                        "received_at": _date(row.get("접수일")),
+                    }
 
-                if case:
-                    for k, v in fields.items():
-                        if v is not None:
-                            setattr(case, k, v)
-                    total_updated += 1
-                else:
-                    case = Case(**{k: v for k, v in fields.items() if v is not None})
-                    case.case_number = our_ref
-                    case.client_name = client_name
-                    case.country = country or "KR"
-                    db.add(case)
-                    await db.flush()
-                    total_created += 1
+                    if case:
+                        for k, v in fields.items():
+                            if v is not None:
+                                setattr(case, k, v)
+                        total_updated += 1
+                    else:
+                        case = Case(**{k: v for k, v in fields.items() if v is not None})
+                        db.add(case)
+                        await db.flush()  # savepoint 내부라 안전
+                        total_created += 1
 
-                # 출원인담당자 → Party
-                contact = _str(row.get("출원인담당자")) or _str(row.get("출원인담당"))
-                if contact and case.id:
-                    ex = await db.execute(
-                        select(Party).where(Party.case_id == case.id, Party.name == contact)
-                    )
-                    if not ex.scalar_one_or_none():
-                        db.add(Party(case_id=case.id, name=contact, role="client_contact"))
+                    # 출원인담당자 → Party
+                    contact = _str(row.get("출원인담당자")) or _str(row.get("출원인담당"))
+                    if contact and case.id:
+                        ex = await db.execute(
+                            select(Party).where(Party.case_id == case.id, Party.name == contact)
+                        )
+                        if not ex.scalar_one_or_none():
+                            db.add(Party(case_id=case.id, name=contact, role="client_contact"))
 
             except Exception as e:
-                total_errors.append({"sheet": sheet_name, "row": idx + 2, "ref": our_ref, "error": str(e)})
+                total_errors.append({"sheet": sheet_name, "row": idx + 2, "ref": our_ref, "error": str(e)[:200]})
 
     await db.commit()
     return {
