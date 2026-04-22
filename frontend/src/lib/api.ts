@@ -137,7 +137,45 @@ export const mailApi = {
   ) => api.post(`/api/drafts/${draftId}/approve`, body).then((r) => r.data),
   rejectDraft: (draftId: string, reason: string) =>
     api.post(`/api/drafts/${draftId}/reject`, { reason }).then((r) => r.data),
+  listTemplates: (mailId?: string) =>
+    api.get<{ templates: TemplateItem[]; recommended_id: string | null }>(
+      "/api/drafts/templates",
+      { params: mailId ? { mail_id: mailId } : {} },
+    ).then((r) => r.data),
+  listSignatures: (senderEmail: string) =>
+    api.get<{ signatures: SignatureItem[] }>(
+      "/api/drafts/signatures",
+      { params: { sender_email: senderEmail } },
+    ).then((r) => r.data),
+  regenerateDraft: (
+    draftId: string,
+    body: { template_id?: string; signature_id?: string; sender_email?: string },
+  ) =>
+    api.post<{ status: string; draft_ko: string; draft_en: string }>(
+      `/api/drafts/${draftId}/regenerate`,
+      body,
+    ).then((r) => r.data),
 };
+
+export interface TemplateItem {
+  id: string;
+  name: string;
+  category: string;
+  language: "ko" | "en";
+  use_case: string;
+  subject_pattern: string;
+  variables: string[];
+  is_recommended: boolean;
+}
+
+export interface SignatureItem {
+  id: string;
+  label: string;
+  language: "ko" | "en";
+  sender_email: string;
+  body: string;
+  is_default: boolean;
+}
 
 export const caseApi = {
   list: () => api.get<Case[]>("/api/cases").then((r) => r.data),

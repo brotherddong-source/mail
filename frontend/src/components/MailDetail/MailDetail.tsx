@@ -165,7 +165,7 @@ export default function MailDetail({ mailId, onClose }: Props) {
 
         {tab === "draft" && (
           pendingDraft ? (
-            <DraftApproval draft={pendingDraft} mailId={mailId} />
+            <DraftApproval draft={pendingDraft} mailId={mailId} senderEmail={mail.from_email ?? undefined} />
           ) : (
             <div className="flex h-32 items-center justify-center text-gray-400">
               {mail.drafts?.length ? "이미 처리된 초안입니다." : "초안이 없습니다."}

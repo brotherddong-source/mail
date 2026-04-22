@@ -1,7 +1,9 @@
 "use client";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { mailApi, DraftResponse } from "@/lib/api";
+import { mailApi, DraftResponse, SignatureItem } from "@/lib/api";
+import TemplateSelector from "./TemplateSelector";
+import SignatureSelector from "./SignatureSelector";
 
 interface RecipientEntry {
   email: string;
@@ -11,9 +13,10 @@ interface RecipientEntry {
 interface Props {
   draft: DraftResponse;
   mailId: string;
+  senderEmail?: string; // 발신자 (서명 선택에 사용)
 }
 
-export default function DraftApproval({ draft, mailId }: Props) {
+export default function DraftApproval({ draft, mailId, senderEmail = "ip@ip-lab.co.kr" }: Props) {
   const qc = useQueryClient();
   const [lang, setLang] = useState<"ko" | "en">("ko");
   const [body, setBody] = useState(
@@ -21,6 +24,11 @@ export default function DraftApproval({ draft, mailId }: Props) {
   );
   const [rejectReason, setRejectReason] = useState("");
   const [showReject, setShowReject] = useState(false);
+
+  // 템플릿 · 서명 선택 상태
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [selectedSig, setSelectedSig] = useState<SignatureItem | null>(null);
+  const [showTemplatePanel, setShowTemplatePanel] = useState(false);
 
   // 수신자 상태 관리
   const [toList, setToList] = useState<RecipientEntry[]>(
@@ -36,6 +44,29 @@ export default function DraftApproval({ draft, mailId }: Props) {
     setLang(l);
     setBody(l === "ko" ? draft.generated_body_ko || "" : draft.generated_body_en || "");
   };
+
+  const handleSigSelect = (sig: SignatureItem) => {
+    setSelectedSig(sig);
+    // 서명을 body 끝에 자동 반영
+    setBody((prev) => {
+      const withoutOldSig = prev.replace(/\n---sig---[\s\S]*$/, "");
+      return withoutOldSig.trimEnd() + "\n---sig---\n" + sig.body;
+    });
+  };
+
+  const regenerateMutation = useMutation({
+    mutationFn: () =>
+      mailApi.regenerateDraft(draft.id, {
+        template_id: selectedTemplateId ?? undefined,
+        signature_id: selectedSig?.id,
+        sender_email: senderEmail,
+      }),
+    onSuccess: (data) => {
+      const newBody = lang === "ko" ? data.draft_ko : data.draft_en;
+      setBody(newBody);
+      qc.invalidateQueries({ queryKey: ["mail", mailId] });
+    },
+  });
 
   const approveMutation = useMutation({
     mutationFn: () =>
@@ -100,6 +131,62 @@ export default function DraftApproval({ draft, mailId }: Props) {
 
   return (
     <div className="space-y-4">
+
+      {/* 템플릿 · 서명 선택 패널 */}
+      <div className="rounded-lg border p-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-700">초안 유형 · 서명</h3>
+          <button
+            onClick={() => setShowTemplatePanel(!showTemplatePanel)}
+            className="rounded-md border px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            {showTemplatePanel ? "접기 ▲" : "선택 · 변경 ▼"}
+          </button>
+        </div>
+
+        {/* 현재 선택 요약 (항상 표시) */}
+        <div className="mt-2 flex flex-wrap gap-2">
+          {selectedTemplateId ? (
+            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+              📄 {selectedTemplateId.replace(/_/g, " ")}
+            </span>
+          ) : (
+            <span className="text-[10px] text-gray-400">템플릿 미선택 (AI 자동 생성)</span>
+          )}
+          {selectedSig && (
+            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
+              ✍️ {selectedSig.label}
+            </span>
+          )}
+        </div>
+
+        {showTemplatePanel && (
+          <div className="mt-3 space-y-3">
+            <TemplateSelector
+              mailId={mailId}
+              selectedId={selectedTemplateId}
+              onSelect={setSelectedTemplateId}
+            />
+            <SignatureSelector
+              senderEmail={senderEmail}
+              selectedId={selectedSig?.id ?? null}
+              currentLang={lang}
+              onSelect={handleSigSelect}
+            />
+            <button
+              onClick={() => regenerateMutation.mutate()}
+              disabled={regenerateMutation.isPending}
+              className="w-full rounded-lg border-2 border-blue-400 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50 disabled:opacity-50 transition-colors"
+            >
+              {regenerateMutation.isPending ? "재생성 중..." : "🔄 선택 내용으로 초안 재생성"}
+            </button>
+            {regenerateMutation.isError && (
+              <p className="text-center text-xs text-red-500">재생성 실패. 다시 시도해주세요.</p>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* 수신자 편집 */}
       <div className="rounded-lg border p-4">
         <h3 className="mb-3 text-sm font-semibold text-gray-700">수신자</h3>
