@@ -19,6 +19,7 @@ const PRIORITY_ORDER = { high: 0, medium: 1, low: 2, null: 3 };
 
 type Direction = "all" | "incoming" | "outgoing";
 type PriorityFilter = "all" | "high" | "medium" | "low";
+type ReplyFilter = "all" | "needed";
 
 interface MailboxStats {
   total: number;
@@ -33,6 +34,7 @@ export default function InboxDashboard() {
   const [mailboxFilter, setMailboxFilter] = useState<Mailbox | "all">("all");
   const [directionFilter, setDirectionFilter] = useState<Direction>("all");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
+  const [replyFilter, setReplyFilter] = useState<ReplyFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
 
@@ -130,7 +132,7 @@ export default function InboxDashboard() {
     );
   }
 
-  // 필터 적용: 메일함 → 수신/발신 → 우선순위
+  // 필터 적용: 메일함 → 수신/발신 → 우선순위 → 회신필요
   let filtered = mails;
   if (mailboxFilter !== "all") {
     filtered = filtered.filter((m) => classifyMailbox(m) === mailboxFilter);
@@ -142,6 +144,9 @@ export default function InboxDashboard() {
   }
   if (priorityFilter !== "all") {
     filtered = filtered.filter((m) => m.priority === priorityFilter);
+  }
+  if (replyFilter === "needed") {
+    filtered = filtered.filter((m) => m.requires_reply);
   }
 
   const sorted = [...filtered].sort(
@@ -159,6 +164,7 @@ export default function InboxDashboard() {
     (mailboxFilter !== "all" ? 1 : 0) +
     (directionFilter !== "all" ? 1 : 0) +
     (priorityFilter !== "all" ? 1 : 0) +
+    (replyFilter !== "all" ? 1 : 0) +
     (searchQuery ? 1 : 0);
 
   return (
@@ -168,10 +174,33 @@ export default function InboxDashboard() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="IPLAB" className="h-8 object-contain" />
-            <div>
-              <p className="text-sm text-gray-500">
-                전체 {mails.length}건 · 회신 필요 {replyNeeded}건 · 긴급 {high}건
-              </p>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => { setMailboxFilter("all"); setDirectionFilter("all"); setPriorityFilter("all"); setReplyFilter("all"); setStatusFilter("all"); clearSearch(); }}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                  activeFilterCount === 0 ? "bg-blue-100 text-blue-700" : "text-gray-500 hover:bg-gray-100"
+                }`}
+              >
+                전체 {mails.length}건
+              </button>
+              <span className="text-gray-300">|</span>
+              <button
+                onClick={() => setReplyFilter(replyFilter === "needed" ? "all" : "needed")}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                  replyFilter === "needed" ? "bg-orange-100 text-orange-700" : "text-gray-500 hover:bg-orange-50"
+                }`}
+              >
+                회신 필요 {replyNeeded}건
+              </button>
+              <span className="text-gray-300">|</span>
+              <button
+                onClick={() => setPriorityFilter(priorityFilter === "high" ? "all" : "high")}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                  priorityFilter === "high" ? "bg-red-100 text-red-700" : "text-gray-500 hover:bg-red-50"
+                }`}
+              >
+                긴급 {high}건
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -326,6 +355,7 @@ export default function InboxDashboard() {
                   setMailboxFilter("all");
                   setDirectionFilter("all");
                   setPriorityFilter("all");
+                  setReplyFilter("all");
                   setStatusFilter("all");
                   clearSearch();
                 }}
@@ -378,6 +408,7 @@ export default function InboxDashboard() {
                   <th className="px-2 py-2 text-center w-12">구분</th>
                   <th className="px-3 py-2 text-left">시각</th>
                   <th className="px-3 py-2 text-left">발신자</th>
+                  <th className="px-3 py-2 text-left">담당자</th>
                   <th className="px-3 py-2 text-left">사건</th>
                   <th className="px-3 py-2 text-left">요약</th>
                   <th className="px-3 py-2 text-center">회신</th>

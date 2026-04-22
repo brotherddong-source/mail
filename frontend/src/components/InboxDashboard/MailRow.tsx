@@ -34,6 +34,15 @@ interface Props {
   onClick: () => void;
 }
 
+/** to_emails / cc_emails 중 ip-lab 주소 추출 */
+function getIpLabMember(mail: MailMessage): string | null {
+  const all = [...(mail.to_emails || []), ...(mail.cc_emails || [])];
+  const found = all.find((e) => (e.address || "").toLowerCase().endsWith("@ip-lab.co.kr"));
+  if (!found) return null;
+  // 이름이 있으면 이름, 없으면 @앞 부분만
+  return found.name || found.address.split("@")[0];
+}
+
 export default function MailRow({ mail, selected, onClick }: Props) {
   const receivedAt = mail.received_at
     ? format(new Date(mail.received_at), "MM/dd HH:mm", { locale: ko })
@@ -41,6 +50,7 @@ export default function MailRow({ mail, selected, onClick }: Props) {
   const outgoing = isOutgoingMail(mail);
   const mailbox = classifyMailbox(mail);
   const mbColor = MAILBOX_COLOR[mailbox];
+  const ipLabMember = getIpLabMember(mail);
 
   return (
     <tr
@@ -67,6 +77,18 @@ export default function MailRow({ mail, selected, onClick }: Props) {
       <td className="px-3 py-3">
         <div className="font-medium text-gray-900 truncate max-w-[120px]">{mail.from_name || mail.from_email}</div>
         <div className="text-xs text-gray-400 truncate max-w-[120px]">{mail.from_email}</div>
+      </td>
+      {/* 담당자 (ip-lab 멤버) */}
+      <td className="px-3 py-3">
+        {ipLabMember ? (
+          <span className="inline-block rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 truncate max-w-[80px]">
+            {ipLabMember}
+          </span>
+        ) : outgoing ? (
+          <span className="text-[10px] text-gray-300">발신</span>
+        ) : (
+          <span className="text-[10px] text-gray-300">-</span>
+        )}
       </td>
       <td className="px-3 py-3">
         {mail.case_number ? (
