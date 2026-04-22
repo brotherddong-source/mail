@@ -117,17 +117,42 @@ async def upload_cases(
     import pandas as pd
 
     content = await file.read()
-    try:
-        engine = "xlrd" if (file.filename or "").lower().endswith(".xls") else "openpyxl"
-        xl = pd.ExcelFile(io.BytesIO(content), engine=engine)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"파일 읽기 실패: {e}")
+    fname = (file.filename or "").lower()
+    xl = None
+    last_err = None
+
+    # 확장자 우선, 실패 시 반대 엔진으로 재시도
+    engines = ["xlrd", "openpyxl"] if fname.endswith(".xls") else ["openpyxl", "xlrd"]
+    for engine in engines:
+        try:
+            xl = pd.ExcelFile(io.BytesIO(content), engine=engine)
+            break
+        except Exception as e:
+            last_err = e
+            continue
+
+    if xl is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"파일 읽기 실패: {last_err}\n"
+                "해결 방법: Excel에서 파일을 열고 '다른 이름으로 저장' → .xlsx 형식으로 저장 후 다시 업로드하세요."
+            ),
+        )
 
     total_created, total_updated, total_errors = 0, 0, []
 
     for sheet_name in xl.sheet_names:
         df = xl.parse(sheet_name, dtype=str)
         df = df.where(pd.notna(df), None)
+
+        # OurRef 컬럼이 없으면 이 시트는 건너뜀
+        if "OurRef" not in df.columns:
+            total_errors.append({
+                "sheet": sheet_name, "row": 0, "ref": "-",
+                "error": f"OurRef 컬럼 없음 (발견된 컬럼: {', '.join(df.columns[:10].tolist())})"
+            })
+            continue
 
         # 해외 시트 여부 판단
         is_overseas = "국가코드" in df.columns
