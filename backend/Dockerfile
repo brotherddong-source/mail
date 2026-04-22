@@ -17,7 +17,7 @@ COPY backend/pyproject.toml .
 RUN pip install fastapi "uvicorn[standard]" sqlalchemy alembic pydantic pydantic-settings \
     asyncpg psycopg2-binary msal httpx redis anthropic python-dotenv \
     python-multipart "python-jose[cryptography]" "passlib[bcrypt]" celery jinja2 \
-    openpyxl pandas
+    openpyxl pandas xlrd
 
 # backend 소스코드만 복사 → /app/app/ 구조가 됨
 COPY backend/ .
