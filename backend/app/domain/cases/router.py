@@ -118,7 +118,8 @@ async def upload_cases(
 
     content = await file.read()
     try:
-        xl = pd.ExcelFile(io.BytesIO(content))
+        engine = "xlrd" if (file.filename or "").lower().endswith(".xls") else "openpyxl"
+        xl = pd.ExcelFile(io.BytesIO(content), engine=engine)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"파일 읽기 실패: {e}")
 

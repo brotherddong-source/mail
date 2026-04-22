@@ -11,7 +11,7 @@ import {
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 import DraftApproval from "../DraftApproval/DraftApproval";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface Props {
   mailId: string;
@@ -30,6 +30,10 @@ function formatSummary(text: string): string {
 
 export default function MailDetail({ mailId, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("summary");
+  const [outgoingOverride, setOutgoingOverride] = useState<boolean | null>(null);
+
+  // 메일이 바뀌면 오버라이드 초기화
+  useEffect(() => { setOutgoingOverride(null); }, [mailId]);
 
   const { data: mail, isLoading } = useQuery({
     queryKey: ["mail", mailId],
@@ -49,9 +53,15 @@ export default function MailDetail({ mailId, onClose }: Props) {
     ? format(new Date(mail.received_at), "yyyy.MM.dd HH:mm", { locale: ko })
     : "-";
 
-  const outgoing = checkOutgoing(mail as unknown as MailMessage);
+  const autoOutgoing = checkOutgoing(mail as unknown as MailMessage);
+  const outgoing = outgoingOverride ?? autoOutgoing;
   const mailbox = classifyMailbox(mail as unknown as MailMessage);
   const mbColor = MAILBOX_COLOR[mailbox];
+
+  // 회신 발신자: 수신메일이면 받은 ip-lab 주소, 발신메일이면 from_email
+  const replyFromEmail = outgoing
+    ? (mail.from_email ?? "ip@ip-lab.co.kr")
+    : (mail.to_emails?.find((e) => e.address?.toLowerCase().endsWith("@ip-lab.co.kr"))?.address ?? "ip@ip-lab.co.kr");
 
   const pendingDraft = mail.drafts?.find((d) => d.approval_status === "pending");
 
@@ -66,10 +76,25 @@ export default function MailDetail({ mailId, onClose }: Props) {
               <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${mbColor.bg} ${mbColor.text}`}>
                 {MAILBOX_LABEL[mailbox]}
               </span>
-              {outgoing ? (
-                <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">발신</span>
-              ) : (
-                <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">수신</span>
+              <button
+                onClick={() => setOutgoingOverride(outgoing ? false : true)}
+                title="클릭하여 수신/발신 변경"
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                  outgoing
+                    ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                    : "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                }`}
+              >
+                {outgoing ? "발신 ✎" : "수신 ✎"}
+              </button>
+              {outgoingOverride !== null && (
+                <button
+                  onClick={() => setOutgoingOverride(null)}
+                  className="text-[10px] text-gray-400 hover:text-gray-600"
+                  title="자동 감지로 되돌리기"
+                >
+                  초기화
+                </button>
               )}
             </div>
             <div className="mt-1 text-sm text-gray-500">
@@ -146,12 +171,19 @@ export default function MailDetail({ mailId, onClose }: Props) {
         )}
 
         {tab === "original" && (
-          <div className="prose prose-sm max-w-none">
-            {mail.body_html ? (
-              <div dangerouslySetInnerHTML={{ __html: mail.body_html }} />
-            ) : (
-              <pre className="whitespace-pre-wrap text-sm text-gray-700">{mail.body_text}</pre>
+          <div className="space-y-3">
+            {mail.has_attachments && (
+              <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                이 메일에 첨부파일이 있습니다. 첨부파일/인라인 이미지는 Microsoft Graph API를 통해 별도 다운로드가 필요합니다.
+              </div>
             )}
+            <div className="prose prose-sm max-w-none">
+              {mail.body_html ? (
+                <div dangerouslySetInnerHTML={{ __html: mail.body_html }} />
+              ) : (
+                <pre className="whitespace-pre-wrap text-sm text-gray-700">{mail.body_text}</pre>
+              )}
+            </div>
           </div>
         )}
 
@@ -165,7 +197,7 @@ export default function MailDetail({ mailId, onClose }: Props) {
 
         {tab === "draft" && (
           pendingDraft ? (
-            <DraftApproval draft={pendingDraft} mailId={mailId} senderEmail={mail.from_email ?? undefined} />
+            <DraftApproval draft={pendingDraft} mailId={mailId} senderEmail={replyFromEmail} />
           ) : (
             <div className="flex h-32 items-center justify-center text-gray-400">
               {mail.drafts?.length ? "이미 처리된 초안입니다." : "초안이 없습니다."}

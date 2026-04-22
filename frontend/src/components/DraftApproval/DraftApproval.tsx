@@ -29,6 +29,8 @@ export default function DraftApproval({ draft, mailId, senderEmail = "ip@ip-lab.
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [selectedSig, setSelectedSig] = useState<SignatureItem | null>(null);
   const [showTemplatePanel, setShowTemplatePanel] = useState(false);
+  const [customSigText, setCustomSigText] = useState("");
+  const [useFreeSignature, setUseFreeSignature] = useState(false);
 
   // 수신자 상태 관리
   const [toList, setToList] = useState<RecipientEntry[]>(
@@ -47,10 +49,17 @@ export default function DraftApproval({ draft, mailId, senderEmail = "ip@ip-lab.
 
   const handleSigSelect = (sig: SignatureItem) => {
     setSelectedSig(sig);
-    // 서명을 body 끝에 자동 반영
+    setUseFreeSignature(false);
     setBody((prev) => {
       const withoutOldSig = prev.replace(/\n---sig---[\s\S]*$/, "");
       return withoutOldSig.trimEnd() + "\n---sig---\n" + sig.body;
+    });
+  };
+
+  const applyCustomSig = () => {
+    setBody((prev) => {
+      const withoutOldSig = prev.replace(/\n---sig---[\s\S]*$/, "");
+      return withoutOldSig.trimEnd() + (customSigText ? "\n---sig---\n" + customSigText : "");
     });
   };
 
@@ -169,10 +178,41 @@ export default function DraftApproval({ draft, mailId, senderEmail = "ip@ip-lab.
             />
             <SignatureSelector
               senderEmail={senderEmail}
-              selectedId={selectedSig?.id ?? null}
+              selectedId={useFreeSignature ? null : (selectedSig?.id ?? null)}
               currentLang={lang}
               onSelect={handleSigSelect}
             />
+
+            {/* 서명 직접 입력 */}
+            <div className="rounded-lg border bg-gray-50 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-600">서명 직접 입력</span>
+                <button
+                  onClick={() => setUseFreeSignature(!useFreeSignature)}
+                  className="text-[10px] text-blue-500 hover:text-blue-700"
+                >
+                  {useFreeSignature ? "접기 ▲" : "펼치기 ▼"}
+                </button>
+              </div>
+              {useFreeSignature && (
+                <div className="space-y-2">
+                  <textarea
+                    value={customSigText}
+                    onChange={(e) => setCustomSigText(e.target.value)}
+                    rows={5}
+                    placeholder={"예)\n홍길동 변리사\nIP LAB 특허법인\nTel: 02-000-0000\nemail@ip-lab.co.kr"}
+                    className="w-full rounded border bg-white p-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-300 resize-none"
+                  />
+                  <button
+                    onClick={applyCustomSig}
+                    className="w-full rounded border border-green-400 py-1.5 text-xs font-medium text-green-700 hover:bg-green-50 transition-colors"
+                  >
+                    이 서명 초안에 적용
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => regenerateMutation.mutate()}
               disabled={regenerateMutation.isPending}
