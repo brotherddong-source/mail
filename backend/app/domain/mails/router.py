@@ -1,13 +1,16 @@
+import base64
+import re
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.domain.mails.models import MailMessage
+from app.domain.mails.models import MailMessage, MailAttachment
 from app.domain.drafts.models import DraftResponse
 from app.domain.cases.models import Case
 
@@ -105,7 +108,7 @@ async def get_mail(mail_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
         "ai_classification": mail.ai_classification,
         "processing_status": mail.processing_status,
         "body_text": mail.body_text,
-        "body_html": mail.body_html,
+        "body_html": _rewrite_cid(mail.body_html, str(mail.id)) if mail.body_html else None,
         "to_emails": mail.to_emails or [],
         "cc_emails": mail.cc_emails or [],
         "drafts": [
@@ -122,3 +125,62 @@ async def get_mail(mail_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
             for d in (mail.draft_responses or [])
         ],
     }
+
+
+# ── 인라인 이미지 프록시 ───────────────────────────────────────────
+@router.get("/{mail_id}/inline/{content_id:path}")
+async def get_inline_image(
+    mail_id: uuid.UUID,
+    content_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Outlook CID 인라인 이미지를 서빙.
+    1) DB에 content_b64가 저장된 경우 → 즉시 반환
+    2) graph_attachment_id가 있으면 Graph API에서 실시간 fetch
+    """
+    # DB에서 첨부 조회
+    result = await db.execute(
+        select(MailAttachment).where(
+            MailAttachment.mail_id == mail_id,
+            MailAttachment.content_id == content_id,
+        )
+    )
+    att = result.scalar_one_or_none()
+
+    if att and att.content_b64:
+        data = base64.b64decode(att.content_b64)
+        return Response(content=data, media_type=att.content_type or "image/png")
+
+    if att and att.graph_attachment_id:
+        # 메일 조회해서 graph_message_id 가져오기
+        mail_result = await db.execute(select(MailMessage).where(MailMessage.id == mail_id))
+        mail = mail_result.scalar_one_or_none()
+        if mail and mail.graph_message_id:
+            try:
+                from app.connectors.outlook.graph_client import get_graph_client
+                gc = await get_graph_client()
+                # to_emails 에서 ip-lab 주소 찾기
+                to_addrs = mail.to_emails or []
+                mailbox = next(
+                    (e["address"] for e in to_addrs if "ip-lab.co.kr" in e.get("address", "")),
+                    None,
+                ) or mail.from_email
+                url = f"/users/{mailbox}/messages/{mail.graph_message_id}/attachments/{att.graph_attachment_id}/$value"
+                resp = await gc.get(url)
+                return Response(content=resp.content, media_type=att.content_type or "image/png")
+            except Exception:
+                pass
+
+    raise HTTPException(status_code=404, detail="이미지를 찾을 수 없습니다.")
+
+
+# ── 헬퍼 ──────────────────────────────────────────────────────────
+def _rewrite_cid(html: str, mail_id: str) -> str:
+    """body_html 내 cid: 참조를 백엔드 프록시 URL로 교체"""
+    return re.sub(
+        r'src=["\']cid:([^"\'>\s]+)["\']',
+        lambda m: f'src="/api/mails/{mail_id}/inline/{m.group(1)}"',
+        html,
+        flags=re.IGNORECASE,
+    )

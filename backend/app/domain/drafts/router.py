@@ -117,15 +117,30 @@ async def list_templates(
     return {"templates": templates, "recommended_id": recommended_id}
 
 
-# ── 서명 목록 ────────────────────────────────────────────────────
+# ── 서명 목록 (DB 우선, 없으면 하드코딩 폴백) ──────────────────────
 
 @router.get("/signatures")
 async def list_signatures(
     sender_email: str = Query(..., description="발신자 이메일"),
+    db: AsyncSession = Depends(get_db),
 ):
-    """발신자 이메일 기준 사용 가능한 서명 목록"""
-    sigs = get_signatures_for_user(sender_email)
-    return {"signatures": sigs}
+    """발신자 이메일 기준 사용 가능한 서명 목록 — DB 우선, 없으면 hardcoded"""
+    from app.domain.signatures.models import Signature
+    from sqlalchemy import select as sa_select
+    result = await db.execute(
+        sa_select(Signature)
+        .where(Signature.sender_email == sender_email.lower())
+        .order_by(Signature.is_default.desc(), Signature.label)
+    )
+    sigs = result.scalars().all()
+    if sigs:
+        return {"signatures": [
+            {"id": str(s.id), "sender_email": s.sender_email, "label": s.label,
+             "language": s.language, "body": s.body, "is_default": s.is_default}
+            for s in sigs
+        ]}
+    # 폴백: 하드코딩 생성
+    return {"signatures": get_signatures_for_user(sender_email)}
 
 
 # ── 재생성 ────────────────────────────────────────────────────────

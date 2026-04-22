@@ -177,6 +177,32 @@ export interface SignatureItem {
   is_default: boolean;
 }
 
+// ----------------------------------------------------------------
+// Signatures CRUD
+// ----------------------------------------------------------------
+export interface SignatureCreateBody {
+  sender_email: string;
+  label: string;
+  language: "ko" | "en";
+  body: string;
+  is_default?: boolean;
+}
+
+export const signatureApi = {
+  list: (senderEmail?: string) =>
+    api.get<{ signatures: SignatureItem[] }>("/api/signatures", {
+      params: senderEmail ? { sender_email: senderEmail } : {},
+    }).then((r) => r.data),
+  create: (body: SignatureCreateBody) =>
+    api.post<SignatureItem>("/api/signatures", body).then((r) => r.data),
+  update: (id: string, body: Partial<SignatureCreateBody>) =>
+    api.put<SignatureItem>(`/api/signatures/${id}`, body).then((r) => r.data),
+  delete: (id: string) =>
+    api.delete(`/api/signatures/${id}`).then((r) => r.data),
+  seed: () =>
+    api.post<{ status: string; created: number }>("/api/signatures/seed").then((r) => r.data),
+};
+
 export const caseApi = {
   list: () => api.get<Case[]>("/api/cases").then((r) => r.data),
   uploadCases: (file: File) => {

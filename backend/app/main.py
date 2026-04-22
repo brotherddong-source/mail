@@ -115,6 +115,13 @@ except Exception:
     logger.error("cases router 로드 실패:\n%s", traceback.format_exc())
 
 try:
+    from app.domain.signatures.router import router as sig_router
+    app.include_router(sig_router, prefix="/api/signatures", tags=["signatures"])
+    logger.info("signatures router 등록 완료")
+except Exception:
+    logger.error("signatures router 로드 실패:\n%s", traceback.format_exc())
+
+try:
     from app.admin.router import router as admin_router
     app.include_router(admin_router, prefix="/admin", tags=["admin"])
     logger.info("admin router 등록 완료")
