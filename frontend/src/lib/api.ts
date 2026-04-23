@@ -71,12 +71,43 @@ export const MAILBOX_COLOR: Record<Mailbox, { bg: string; text: string; dot: str
   personal: { bg: "bg-gray-50", text: "text-gray-600", dot: "bg-gray-400" },
 };
 
+export interface CaseInfo {
+  id: string;
+  case_number: string;
+  your_ref: string | null;
+  title_ko: string | null;
+  title_en: string | null;
+  client_name: string | null;
+  applicant: string | null;
+  applicant_contact: string | null;
+  country: string | null;
+  case_type: string | null;
+  attorney: string | null;
+  department: string | null;
+  status: string | null;
+  app_number: string | null;
+  reg_number: string | null;
+  deadline: string | null;
+  filed_at: string | null;
+  registered_at: string | null;
+  priority_date: string | null;
+  public_notice_exception_date: string | null;
+  exam_request_date: string | null;
+  exam_request_deadline: string | null;
+  published_at: string | null;
+  intl_filed_at: string | null;
+  national_phase_at: string | null;
+  notes: string | null;
+  ipc: string | null;
+}
+
 export interface MailDetail extends MailMessage {
   body_text: string | null;
   body_html: string | null;
   ai_translation: string | null;
   to_emails: { address: string; name: string }[];
   cc_emails: { address: string; name: string }[];
+  case_info: CaseInfo | null;
   drafts: DraftResponse[];
 }
 
@@ -101,13 +132,18 @@ export interface Recipient {
 export interface Case {
   id: string;
   case_number: string;
+  your_ref: string | null;
+  title_ko: string | null;
+  title_en: string | null;
   app_number: string | null;
   client_name: string;
-  client_domain: string | null;
   country: string;
   case_type: string | null;
+  attorney: string | null;
+  department: string | null;
   status: string | null;
   deadline: string | null;
+  filed_at: string | null;
 }
 
 export interface UploadResult {
@@ -137,6 +173,12 @@ export const mailApi = {
   ) => api.post(`/api/drafts/${draftId}/approve`, body).then((r) => r.data),
   rejectDraft: (draftId: string, reason: string) =>
     api.post(`/api/drafts/${draftId}/reject`, { reason }).then((r) => r.data),
+  linkCase: (mailId: string, caseNumber: string | null) =>
+    api.patch(`/api/mails/${mailId}/case`, { case_number: caseNumber }).then((r) => r.data),
+  createDraft: (mailId: string) =>
+    api.post(`/api/mails/${mailId}/draft`).then((r) => r.data),
+  translate: (mailId: string) =>
+    api.post<{ status: string; translation: string }>(`/api/mails/${mailId}/translate`).then((r) => r.data),
   listTemplates: (mailId?: string) =>
     api.get<{ templates: TemplateItem[]; recommended_id: string | null }>(
       "/api/drafts/templates",

@@ -56,6 +56,9 @@ async def _async_process(user_id: str, message_id: str) -> None:
                 filename=att.get("name"),
                 content_type=att.get("contentType"),
                 size_bytes=att.get("size"),
+                content_id=att.get("contentId"),
+                is_inline=att.get("isInline", False),
+                content_b64=att.get("contentBytes"),
             ))
 
         await db.commit()
@@ -104,14 +107,23 @@ async def _analyze_and_draft(mail_id: uuid.UUID, message_id: str) -> None:
         )
 
         if match_result.matched_case:
-            mail.case_id = match_result.matched_case.id
+            c = match_result.matched_case
+            mail.case_id = c.id
             case_dict = {
-                "case_number": match_result.matched_case.case_number,
-                "client_name": match_result.matched_case.client_name,
-                "country": match_result.matched_case.country,
-                "case_type": match_result.matched_case.case_type,
-                "status": match_result.matched_case.status,
-                "deadline": str(match_result.matched_case.deadline) if match_result.matched_case.deadline else None,
+                "case_number": c.case_number,
+                "your_ref": c.your_ref,
+                "title_ko": c.title_ko,
+                "title_en": c.title_en,
+                "client_name": c.client_name,
+                "applicant": c.applicant,
+                "country": c.country,
+                "case_type": c.case_type,
+                "attorney": c.attorney,
+                "status": c.status,
+                "app_number": c.app_number,
+                "deadline": c.deadline.isoformat() if c.deadline else None,
+                "filed_at": c.filed_at.isoformat() if c.filed_at else None,
+                "notes": c.notes,
             }
         else:
             case_dict = None

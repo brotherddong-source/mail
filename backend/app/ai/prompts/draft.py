@@ -75,23 +75,42 @@ AI 분석 결과:
 
     body_preview = (mail_data.get("body_text") or "")[:2000]
 
-    # 수신 메일과 매칭되는 실무 템플릿 힌트 포함
+    # 수신 메일과 매칭되는 실무 템플릿 힌트 — 사건 DB 값으로 변수 치환 후 포함
     subject = mail_data.get("subject", "")
     matched = get_template_for_mail(subject, body_preview, direction="inbound")
     template_section = ""
     if matched:
-        auto_ko = matched.get("auto_reply_ko", "")
-        auto_en = matched.get("auto_reply_en", "")
+        from app.templates.resolver import resolve_template
         reply_guide = matched.get("reply_guide", "")
         template_section = f"""
 [매칭된 실무 템플릿: {matched['name']}]
 처리 가이드:
 {reply_guide}
 """
+        auto_ko = matched.get("auto_reply_ko", "")
+        auto_en = matched.get("auto_reply_en", "")
+        mail_info = {"from_name": mail_data.get("from_name"), "from_email": mail_data.get("from_email")}
+
         if auto_ko:
-            template_section += f"\n참고 초안(국문):\n{auto_ko}\n"
+            resolved_ko = resolve_template(auto_ko, case_info=case_info, mail_info=mail_info, language="ko")
+            template_section += f"\n참고 초안(국문) — [확인 필요] 항목을 채워 완성하세요:\n{resolved_ko}\n"
         if auto_en:
-            template_section += f"\n참고 초안(영문):\n{auto_en}\n"
+            resolved_en = resolve_template(auto_en, case_info=case_info, mail_info=mail_info, language="en")
+            template_section += f"\n참고 초안(영문) — [확인 필요] 항목을 채워 완성하세요:\n{resolved_en}\n"
+
+        # 권장 회신 템플릿(outbound)이 있으면 그것도 사건 정보로 치환해서 제공
+        reply_tpl_id = matched.get("reply_template_id")
+        if reply_tpl_id and case_info:
+            from app.templates.mail_templates import OUTBOUND_BY_ID
+            reply_tpl = OUTBOUND_BY_ID.get(reply_tpl_id)
+            if reply_tpl:
+                reply_body, reply_meta = reply_tpl
+                lang = reply_meta.get("language", "ko")
+                resolved_reply = resolve_template(reply_body, case_info=case_info, mail_info=mail_info, language=lang)
+                template_section += (
+                    f"\n[권장 발신 템플릿: {reply_meta['name']}]\n"
+                    f"사건 정보 자동 완성 결과 ([확인 필요] 항목 직접 수정 필요):\n{resolved_reply[:800]}\n"
+                )
 
     return f"""다음 메일에 대한 회신 초안을 작성해주세요.
 

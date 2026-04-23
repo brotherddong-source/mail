@@ -233,6 +233,13 @@ async def upload_cases(
                         "filed_at": _date(row.get("출원일")),
                         "registered_at": _date(row.get("등록일")),
                         "received_at": _date(row.get("접수일")),
+                        "priority_date": _date(row.get("우선일") or row.get("우선권주장일")),
+                        "public_notice_exception_date": _date(row.get("공지예외일")),
+                        "exam_request_date": _date(row.get("심사청구일")),
+                        "exam_request_deadline": _date(row.get("심사청구기한") or row.get("심사청구마감일")),
+                        "published_at": _date(row.get("공개일") or row.get("출원공개일")),
+                        "intl_filed_at": _date(row.get("국제출원일") or row.get("PCT출원일")),
+                        "national_phase_at": _date(row.get("국내단계진입일")),
                     }
 
                     if case:
@@ -346,6 +353,13 @@ def _case_to_dict(c: Case) -> dict:
         "deadline": c.deadline.isoformat() if c.deadline else None,
         "filed_at": c.filed_at.isoformat() if c.filed_at else None,
         "registered_at": c.registered_at.isoformat() if c.registered_at else None,
+        "priority_date": c.priority_date.isoformat() if c.priority_date else None,
+        "public_notice_exception_date": c.public_notice_exception_date.isoformat() if c.public_notice_exception_date else None,
+        "exam_request_date": c.exam_request_date.isoformat() if c.exam_request_date else None,
+        "exam_request_deadline": c.exam_request_deadline.isoformat() if c.exam_request_deadline else None,
+        "published_at": c.published_at.isoformat() if c.published_at else None,
+        "intl_filed_at": c.intl_filed_at.isoformat() if c.intl_filed_at else None,
+        "national_phase_at": c.national_phase_at.isoformat() if c.national_phase_at else None,
         "notes": c.notes,
         "ipc": c.ipc,
     }

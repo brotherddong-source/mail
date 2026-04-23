@@ -49,9 +49,16 @@ class Case(Base):
     annual_deadline: Mapped[date | None] = mapped_column(Date)   # 연차마감일
 
     # 날짜
-    filed_at: Mapped[date | None] = mapped_column(Date)          # 출원일
-    registered_at: Mapped[date | None] = mapped_column(Date)     # 등록일
-    received_at: Mapped[date | None] = mapped_column(Date)       # 접수일
+    filed_at: Mapped[date | None] = mapped_column(Date)                        # 출원일
+    registered_at: Mapped[date | None] = mapped_column(Date)                   # 등록일
+    received_at: Mapped[date | None] = mapped_column(Date)                     # 접수일
+    priority_date: Mapped[date | None] = mapped_column(Date)                   # 우선일
+    public_notice_exception_date: Mapped[date | None] = mapped_column(Date)    # 공지예외일
+    exam_request_date: Mapped[date | None] = mapped_column(Date)               # 심사청구일
+    exam_request_deadline: Mapped[date | None] = mapped_column(Date)           # 심사청구기한
+    published_at: Mapped[date | None] = mapped_column(Date)                    # 공개일
+    intl_filed_at: Mapped[date | None] = mapped_column(Date)                   # 국제출원일(PCT)
+    national_phase_at: Mapped[date | None] = mapped_column(Date)               # 국내단계진입일
 
     # 기타
     ipc: Mapped[str | None] = mapped_column(String(100))         # IPC분류

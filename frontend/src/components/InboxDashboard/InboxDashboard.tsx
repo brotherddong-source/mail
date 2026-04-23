@@ -72,7 +72,7 @@ export default function InboxDashboard() {
     };
   }, []);
 
-  const { data: mails = [], isLoading, refetch } = useQuery({
+  const { data: mails = [], isLoading, isRefetching, refetch } = useQuery({
     queryKey: ["mails", statusFilter, searchQuery],
     queryFn: () =>
       mailApi.list({
@@ -168,7 +168,13 @@ export default function InboxDashboard() {
           )}
           <Link href="/cases" className="rounded border px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">사건관리</Link>
           <Link href="/settings/signatures" className="rounded border px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">서명관리</Link>
-          <button onClick={() => refetch()} className="rounded border px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50">새로고침</button>
+          <button
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            className="rounded border px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-60"
+          >
+            {isRefetching ? "갱신 중..." : "새로고침"}
+          </button>
           <button onClick={logout} className="rounded border px-2.5 py-1 text-xs text-red-500 hover:bg-red-50">로그아웃</button>
         </div>
       </header>
@@ -376,9 +382,10 @@ export default function InboxDashboard() {
           {/* 리사이즈 핸들 */}
           <div
             onMouseDown={handleMouseDown}
-            className="hidden lg:flex w-1.5 cursor-col-resize items-center justify-center hover:bg-blue-100 active:bg-blue-200 transition-colors bg-gray-100 shrink-0"
+            title="드래그하여 너비 조절"
+            className="hidden lg:flex w-1.5 cursor-col-resize items-center justify-center hover:bg-blue-200 active:bg-blue-300 transition-colors bg-gray-200 shrink-0 group"
           >
-            <div className="h-8 w-0.5 rounded-full bg-gray-300" />
+            <div className="h-10 w-0.5 rounded-full bg-gray-400 group-hover:bg-blue-500" />
           </div>
 
           {/* 상세 */}

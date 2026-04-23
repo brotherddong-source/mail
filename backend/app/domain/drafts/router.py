@@ -191,18 +191,50 @@ async def regenerate_draft(
                 else:
                     signature_body_ko = sig["body"]
 
-    # 선택한 템플릿 힌트
+    # 선택한 템플릿 — 사건 DB 값으로 변수 치환 후 AI에 전달
     template_hint = ""
     if body.template_id:
         from app.templates.mail_templates import OUTBOUND_BY_ID
+        from app.templates.resolver import resolve_template
         tpl = OUTBOUND_BY_ID.get(body.template_id)
         if tpl:
             tpl_body, tpl_meta = tpl
+            lang = tpl_meta.get("language", "ko")
+            resolved = resolve_template(
+                tpl_body,
+                case_info=case_dict,
+                mail_info={"from_name": mail.from_name, "from_email": mail.from_email},
+                sender_email=body.sender_email,
+                language=lang,
+            )
             template_hint = (
                 f"\n[선택된 템플릿: {tpl_meta['name']}]\n"
                 f"용도: {tpl_meta.get('use_case', '')}\n"
-                f"참고 형식:\n{tpl_body[:600]}\n"
+                f"아래는 사건 DB에서 자동 채워진 초안입니다. "
+                f"[확인 필요: *] 항목은 실제 값으로 채워 완성해주세요:\n\n"
+                f"{resolved}\n"
             )
+
+    # 사건 정보 조회
+    case_dict = None
+    if mail.case_id:
+        from app.domain.cases.models import Case
+        case_result = await db.execute(select(Case).where(Case.id == mail.case_id))
+        case = case_result.scalar_one_or_none()
+        if case:
+            case_dict = {
+                "case_number": case.case_number,
+                "your_ref": case.your_ref,
+                "client_name": case.client_name,
+                "title_ko": case.title_ko,
+                "title_en": case.title_en,
+                "country": case.country,
+                "case_type": case.case_type,
+                "attorney": case.attorney,
+                "status": case.status,
+                "app_number": case.app_number,
+                "deadline": case.deadline.isoformat() if case.deadline else None,
+            }
 
     # Claude 재생성
     mail_dict = {
@@ -225,6 +257,7 @@ async def regenerate_draft(
         new_draft_result = await drafter.draft(
             mail_data=mail_dict,
             analysis=analysis_dict,
+            case_info=case_dict,
         )
 
         # 서명 붙이기

@@ -34,12 +34,10 @@ interface Props {
   onClick: () => void;
 }
 
-/** to_emails / cc_emails 중 ip-lab 주소 추출 */
 function getIpLabMember(mail: MailMessage): string | null {
   const all = [...(mail.to_emails || []), ...(mail.cc_emails || [])];
   const found = all.find((e) => (e.address || "").toLowerCase().endsWith("@ip-lab.co.kr"));
   if (!found) return null;
-  // 이름이 있으면 이름, 없으면 @앞 부분만
   return found.name || found.address.split("@")[0];
 }
 
@@ -51,6 +49,7 @@ export default function MailRow({ mail, selected, onClick }: Props) {
   const mailbox = classifyMailbox(mail);
   const mbColor = MAILBOX_COLOR[mailbox];
   const ipLabMember = getIpLabMember(mail);
+  const senderDisplay = mail.from_name || mail.from_email || "";
 
   return (
     <tr
@@ -66,50 +65,59 @@ export default function MailRow({ mail, selected, onClick }: Props) {
           <span className={clsx("rounded px-1.5 py-0.5 text-[9px] font-semibold leading-tight", mbColor.bg, mbColor.text)}>
             {MAILBOX_LABEL[mailbox].slice(0, 2)}
           </span>
-          {outgoing ? (
-            <span className="text-[9px] text-emerald-500 font-bold">발신</span>
-          ) : (
-            <span className="text-[9px] text-blue-500 font-bold">수신</span>
-          )}
+          <span className={clsx("text-[9px] font-bold", outgoing ? "text-emerald-500" : "text-blue-500")}>
+            {outgoing ? "발신" : "수신"}
+          </span>
         </div>
       </td>
-      <td className="whitespace-nowrap px-3 py-3 text-gray-500">{receivedAt}</td>
-      <td className="px-3 py-3">
-        <div className="font-medium text-gray-900 truncate max-w-[120px]">{mail.from_name || mail.from_email}</div>
-        <div className="text-xs text-gray-400 truncate max-w-[120px]">{mail.from_email}</div>
+
+      <td className="whitespace-nowrap px-3 py-3 text-xs text-gray-500">{receivedAt}</td>
+
+      {/* 발신자 — title로 전체 텍스트 */}
+      <td className="px-3 py-3" title={`${senderDisplay}\n${mail.from_email}`}>
+        <div className="font-medium text-gray-900 truncate max-w-[110px] text-xs">{senderDisplay}</div>
+        <div className="text-[10px] text-gray-400 truncate max-w-[110px]">{mail.from_email}</div>
       </td>
-      {/* 담당자 (ip-lab 멤버) */}
+
+      {/* 담당자 */}
       <td className="px-3 py-3">
         {ipLabMember ? (
-          <span className="inline-block rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 truncate max-w-[80px]">
+          <span className="inline-block rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 truncate max-w-[80px]" title={ipLabMember}>
             {ipLabMember}
           </span>
-        ) : outgoing ? (
-          <span className="text-[10px] text-gray-300">발신</span>
         ) : (
           <span className="text-[10px] text-gray-300">-</span>
         )}
       </td>
-      <td className="px-3 py-3">
+
+      {/* 사건 — title로 전체 */}
+      <td className="px-3 py-3" title={mail.case_number ? `${mail.case_number}\n${mail.client_name ?? ""}` : "사건 미매칭"}>
         {mail.case_number ? (
           <div>
-            <div className="text-xs font-mono text-blue-700">{mail.case_number}</div>
-            <div className="text-xs text-gray-400 truncate max-w-[100px]">{mail.client_name}</div>
+            <div className="text-xs font-mono text-blue-700 whitespace-nowrap">{mail.case_number}</div>
+            <div className="text-[10px] text-gray-400 truncate max-w-[90px]">{mail.client_name}</div>
           </div>
         ) : (
-          <span className="text-xs text-gray-300">미매칭</span>
+          <span className="text-[10px] text-gray-300">미매칭</span>
         )}
       </td>
-      <td className="px-3 py-3 max-w-[200px]">
+
+      {/* 요약 — title로 전체 */}
+      <td className="px-3 py-3 max-w-[180px]" title={mail.ai_summary || mail.subject || ""}>
         <p className="text-xs text-gray-600 line-clamp-2">{mail.ai_summary || mail.subject}</p>
       </td>
+
+      {/* 회신 필요 — 더 눈에 띄게 */}
       <td className="px-3 py-3 text-center">
         {mail.requires_reply ? (
-          <span className="inline-block h-2 w-2 rounded-full bg-orange-400" title="회신 필요" />
+          <span className="inline-block rounded-full bg-orange-100 px-1.5 py-0.5 text-[9px] font-bold text-orange-600 whitespace-nowrap">
+            회신
+          </span>
         ) : (
-          <span className="inline-block h-2 w-2 rounded-full bg-gray-200" />
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-gray-200" />
         )}
       </td>
+
       <td className="px-3 py-3 text-center">
         {mail.priority && (
           <span className={clsx("rounded-full px-2 py-0.5 text-xs font-medium", PRIORITY_BADGE[mail.priority])}>
@@ -117,6 +125,7 @@ export default function MailRow({ mail, selected, onClick }: Props) {
           </span>
         )}
       </td>
+
       <td className="px-3 py-3 text-center">
         <span className={clsx("rounded-full px-2 py-0.5 text-xs", STATUS_BADGE[mail.processing_status] || "bg-gray-100 text-gray-400")}>
           {STATUS_LABEL[mail.processing_status] || mail.processing_status}

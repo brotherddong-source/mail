@@ -57,6 +57,9 @@ class MailAttachment(Base):
     filename: Mapped[str | None] = mapped_column(Text)
     content_type: Mapped[str | None] = mapped_column(String(100))
     size_bytes: Mapped[int | None] = mapped_column(Integer)
+    content_id: Mapped[str | None] = mapped_column(Text)
+    is_inline: Mapped[bool] = mapped_column(Boolean, default=False)
+    content_b64: Mapped[str | None] = mapped_column(Text)
     ai_summary: Mapped[str | None] = mapped_column(Text)
     stored_path: Mapped[str | None] = mapped_column(Text)
 

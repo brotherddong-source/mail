@@ -120,10 +120,10 @@ class GraphClient:
         )
 
     async def get_message_attachments(self, user_id: str, message_id: str) -> list[dict]:
-        """첨부파일 메타데이터 목록 조회"""
+        """첨부파일 목록 조회 (인라인 이미지 포함)"""
         result = await self.get(
             f"/users/{user_id}/messages/{message_id}/attachments",
-            params={"$select": "id,name,contentType,size"},
+            params={"$select": "id,name,contentType,size,contentBytes,contentId,isInline"},
         )
         return result.get("value", [])
 
