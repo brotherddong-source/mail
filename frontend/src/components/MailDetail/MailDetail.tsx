@@ -171,19 +171,12 @@ export default function MailDetail({ mailId, onClose }: Props) {
         )}
 
         {tab === "original" && (
-          <div className="space-y-3">
-            {mail.has_attachments && (
-              <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
-                이 메일에 첨부파일이 있습니다. 첨부파일/인라인 이미지는 Microsoft Graph API를 통해 별도 다운로드가 필요합니다.
-              </div>
+          <div className="prose prose-sm max-w-none">
+            {mail.body_html ? (
+              <div dangerouslySetInnerHTML={{ __html: mail.body_html }} />
+            ) : (
+              <pre className="whitespace-pre-wrap text-sm text-gray-700">{mail.body_text}</pre>
             )}
-            <div className="prose prose-sm max-w-none">
-              {mail.body_html ? (
-                <div dangerouslySetInnerHTML={{ __html: mail.body_html }} />
-              ) : (
-                <pre className="whitespace-pre-wrap text-sm text-gray-700">{mail.body_text}</pre>
-              )}
-            </div>
           </div>
         )}
 
